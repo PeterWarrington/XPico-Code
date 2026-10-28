@@ -3,6 +3,15 @@
 #ifndef XPCODE_H
 #define XPCODE_H
 
+#ifdef MAC_OS
+/* Mac OS 9 / Carbon build: the Win32 API the editor is written against is
+ * provided by the shim in src/mac. Mac OS 9 has no shell, pipes or processes,
+ * so the integrated terminal is left out of this build. */
+#include "mac/win32.h"
+#define HAVE_TERMINAL 0
+#define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
+#define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
+#else
 #define _WIN32_WINNT 0x0501
 #define WINVER 0x0501
 #define _WIN32_IE 0x0600
@@ -12,6 +21,8 @@
 #include <commdlg.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#define HAVE_TERMINAL 1
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
