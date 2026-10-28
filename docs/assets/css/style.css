@@ -5,6 +5,7 @@ body {
   min-height: 100vh;
   box-sizing: border-box;
   background: #1F4D93;
+  font-family: Helvetica, Arial, sans-serif;
 }
 .main-window { max-width: 840px; margin: 0 auto; }
 .window-body { margin: 0 3px; padding: 16px 21px; background: #ece9d8; font-size: 14px; line-height: 1.5; }
@@ -16,27 +17,12 @@ body {
   color: #fff;
   background: linear-gradient(90deg, #0a246a, #3a6ea5);
 }
-.window-body p { margin: 8px 0; }
-.window-body img { max-width: 100%; height: auto; }
-.window-body ul { padding-left: 20px; }
-.window-body li { margin-bottom: 8px; }
-.window-body code { font-family: "Lucida Console", Consolas, monospace; font-size: 12px; }
-.window-body a { color: #0000ee; }
 .window-body a.button {
   display: inline-block;
   min-width: 220px;
   padding: 4px 12px;
   margin: 2px 0;
-  box-sizing: border-box;
-  color: #000;
-  text-decoration: none;
-  text-align: center;
-  background: linear-gradient(#fff, #ece9d8 85%, #d6d0c0);
-  border: 1px solid #003c74;
-  border-radius: 3px;
 }
-.window-body a.button:hover { box-shadow: inset 0 0 0 2px #fcb83a; }
-.window-body a.button:active { background: #d6d0c0; }
 .screenshot { text-align: center; padding: 3px; }
 .screenshot img { border: 2px inset #fff; }
 p {

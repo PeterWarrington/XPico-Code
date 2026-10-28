@@ -29,7 +29,7 @@ description: A VS Code-style editor in under 200kb and compatible with Windows X
   Donate to support me: <a href="https://www.buymeacoffee.com/peterwarrington">buymeacoffee.com/peterwarrington</a>
 </p>
 
-<p class="screenshot"><img src="screenshot.png" alt="XPico Code editing its own source while rebuilding itself in the integrated terminal"></p>
+<p class="screenshot"><img src="screenshot.png" alt="XPico Code editing its own source while rebuilding itself in the integrated terminal" width="750px"></p>
 
 ## Features
 

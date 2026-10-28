@@ -32,6 +32,7 @@
 </head>
 <body>
   <div class="window main-window">
+    <!--[if !(lt IE 10)]><!-->
     <div class="title-bar">
       <div class="title-bar-text">{{ site.title }}</div>
       <div class="title-bar-controls">
@@ -40,9 +41,12 @@
         <button aria-label="Close" tabindex="-1"></button>
       </div>
     </div>
+    <!--<![endif]-->
+    <!--[if !(lt IE 10)]><!-->
     <div class="window-body">
       {{ content }}
     </div>
+    <!--<![endif]-->
     <div class="status-bar">
       <p class="status-bar-field">Theme: <a href="https://botoxparty.github.io/XP.css">XP.css</a></p>
       <p class="status-bar-field"><a href="https://lilpete.me">lilpete.me</a></p>
