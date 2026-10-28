@@ -641,6 +641,16 @@ static void run_in_terminal(const char *cmd)
     term_send_line(cmd);
 }
 
+/* tcc builds a GUI-subsystem exe when the source defines WinMain */
+static int source_is_gui(int idx)
+{
+    int len = 0, gui; char *src = read_file(editor_doc_path(idx), &len);
+    if (!src) return 0;
+    gui = strstr(src, "WinMain") != NULL;
+    free(src);
+    return gui;
+}
+
 static void run_active_file(int buildOnly)
 {
     int i = editor_active_index(); const char *p, *e; char dir[MAX_PATH], cmd[MAX_PATH * 3];
@@ -652,6 +662,8 @@ static void run_active_file(int buildOnly)
     if (!_stricmp(e, "c")) {
         char exe[MAX_PATH]; strcpy(exe, path_name(p)); exe[strlen(exe) - 2] = 0;
         if (buildOnly) sfmt(cmd, sizeof cmd, "cd /d \"%s\" && tcc \"%s\" -o \"%s.exe\"", dir, path_name(p), exe);
+        else if (source_is_gui(i))   /* start detaches it; run straight from the terminal's cmd, a GUI program stalls at startup until the stdin pipe sees input */
+            sfmt(cmd, sizeof cmd, "cd /d \"%s\" && tcc \"%s\" -o \"%s.exe\" && start \"\" \"%s.exe\"", dir, path_name(p), exe, exe);
         else sfmt(cmd, sizeof cmd, "cd /d \"%s\" && tcc \"%s\" -o \"%s.exe\" && \"%s.exe\"", dir, path_name(p), exe, exe);
     } else if (!_stricmp(e, "py")) sfmt(cmd, sizeof cmd, "cd /d \"%s\" && python -u \"%s\"", dir, path_name(p));
     else if (!_stricmp(e, "bat") || !_stricmp(e, "cmd")) sfmt(cmd, sizeof cmd, "cd /d \"%s\" && call \"%s\"", dir, path_name(p));

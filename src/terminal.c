@@ -616,6 +616,34 @@ static void input_set(Term *t, const char *s)
     memcpy(t->input, s, n); t->inlen = t->incur = n;
 }
 
+/* A GUI program started straight from cmd inherits the terminal's stdin pipe and stalls at startup until
+ * the pipe sees input, so GUI commands typed at the prompt are launched through "start" instead. */
+static int command_is_gui(Term *t, const char *line)
+{
+    char name[MAX_PATH], path[MAX_PATH], *file; unsigned char hdr[0x40]; const char *p = line;
+    DWORD n = 0; LONG pe; int k = 0, gui = 0; HANDLE h;
+    while (*p == ' ') p++;
+    if (!*p || strpbrk(line, "&|<>^%")) return 0;
+    if (*p == '"') { for (p++; *p && *p != '"' && k < MAX_PATH - 1; ) name[k++] = *p++; }
+    else while (*p && *p != ' ' && k < MAX_PATH - 1) name[k++] = *p++;
+    name[k] = 0;
+    if (!k || !_stricmp(name, "start") || !_stricmp(name, "call")) return 0;
+    if ((t->cwd[0] && SearchPath(t->cwd, name, ".exe", MAX_PATH, path, &file)) || SearchPath(NULL, name, ".exe", MAX_PATH, path, &file)) {
+        h = CreateFile(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+        if (h == INVALID_HANDLE_VALUE) return 0;
+        if (ReadFile(h, hdr, sizeof hdr, &n, NULL) && n == sizeof hdr && hdr[0] == 'M' && hdr[1] == 'Z') {
+            pe = *(LONG *)(hdr + 0x3C);
+            if (SetFilePointer(h, pe, NULL, FILE_BEGIN) == (DWORD)pe) {
+                unsigned char nt[0x5E];   /* "PE\0\0", file header, then optional header up to Subsystem */
+                if (ReadFile(h, nt, sizeof nt, &n, NULL) && n == sizeof nt && !memcmp(nt, "PE\0\0", 4))
+                    gui = *(unsigned short *)(nt + 4 + 20 + 68) == 2;
+            }
+        }
+        CloseHandle(h);
+    }
+    return gui;
+}
+
 static void submit(Term *t)
 {
     char line[1100]; int atPrompt = is_prompt(last_line(t));
@@ -635,6 +663,7 @@ static void submit(Term *t)
     if (atPrompt) problems_clear();
     else { term_put(t, line, t->inlen); term_put(t, "\r\n", 2); }   /* programs don't echo stdin */
     if (!_stricmp(line, "cls")) term_clear_lines(t);
+    if (atPrompt && command_is_gui(t, line)) term_write(t, "start \"\" ", 9);
     term_write(t, line, t->inlen);
     term_write(t, "\r\n", 2);
     t->inlen = t->incur = 0; t->follow = 1; t->hasSel = 0;
