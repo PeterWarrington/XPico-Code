@@ -1,4 +1,4 @@
-/* XP Code - a VS Code style editor for Windows XP, written in plain Win32 C.
+/* XPico Code - a VS Code style editor for Windows XP, written in plain Win32 C.
  * Built with Tiny C Compiler: see build.bat */
 #ifndef XPCODE_H
 #define XPCODE_H
@@ -18,8 +18,8 @@
 #include <stdarg.h>
 #include <ctype.h>
 
-#define APP_NAME "XP Code"
-#define APP_VERSION "1.0.0"
+#define APP_NAME "XPico Code"
+#define APP_VERSION "1.1.0"
 #define IDI_APP 1        /* icon resource embedded by tools/embed_resources.py */
 #define HEX(c) RGB(((c) >> 16) & 255, ((c) >> 8) & 255, (c) & 255)
 

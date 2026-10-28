@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="res/icon.png" width="96" height="96" alt="XP Code icon">
+  <img src="res/icon.png" width="96" height="96" alt="XPico Code icon">
 </p>
 
-<h1 align="center">XP Code</h1>
+<h1 align="center">XPico Code</h1>
 
 <p align="center">
   A VS Code-style editor in under 200kb and compatible with Windows XP.<br>
@@ -10,12 +10,12 @@
 </p>
 
 <p align="center">
-<a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.0.0/XPCode-1.0.0.msi">Download installer .msi</a>
+<a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.0.0/XPicoCode-1.0.0.msi">Download installer .msi</a>
   <br/>
-<a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.0.0/XPCode-1.0.0.exe">Download standalone .exe</a>
+<a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.0.0/XPicoCode-1.0.0.exe">Download standalone .exe</a>
 </p>
 
-![XP Code editing its own source while rebuilding itself in the integrated terminal](docs/screenshot.png)
+![XPico Code editing its own source while rebuilding itself in the integrated terminal](docs/screenshot.png)
 
 ## Features
 
@@ -40,15 +40,15 @@
 
 ## Install
 
-Download `XPCode-1.0.0.msi` from the releases page and run it. The installer puts XP Code in
-`Program Files\XP Code`, adds a Start Menu shortcut and an optional desktop shortcut, and registers
+Download `XPicoCode-1.0.0.msi` from the releases page and run it. The installer puts XPico Code in
+`Program Files\XPico Code`, adds a Start Menu shortcut and an optional desktop shortcut, and registers
 in Add or Remove Programs. Installing a newer version upgrades the old one in place.
 
 Silent install and removal work the usual Windows Installer way:
 
 ```
-msiexec /i XPCode-1.0.0.msi /qn
-msiexec /x XPCode-1.0.0.msi /qn
+msiexec /i XPicoCode-1.0.0.msi /qn
+msiexec /x XPicoCode-1.0.0.msi /qn
 ```
 
 Tested on Windows XP Professional (32-bit).
@@ -65,12 +65,12 @@ I did the logo though, so I did do something.
 
 ## Compilers and interpreters
 
-XP Code does not ship a compiler. For F5 and the terminal it adds these to `PATH` when they exist:
+XPico Code does not ship a compiler. For F5 and the terminal it adds these to `PATH` when they exist:
 
-- Tiny C Compiler in `<XP Code folder>\tcc`, `Program Files\tcc`, `C:\tcc` or `C:\dev\tools\tcc`
+- Tiny C Compiler in `<XPico Code folder>\tcc`, `Program Files\tcc`, `C:\tcc` or `C:\dev\tools\tcc`
 - Python in any `C:\Python*` folder
 
-Other locations can be listed in the settings file (`%APPDATA%\XP Code\xpcode.ini`):
+Other locations can be listed in the settings file (`%APPDATA%\XPico Code\xpcode.ini`):
 
 ```ini
 [tools]
@@ -110,13 +110,13 @@ Requirements:
   the installer needs `msilib`, which was removed in Python 3.13)
 
 ```
-build.bat [C:\path\to\tcc.exe]      -> build\xpcode.exe
-python installer\build_msi.py       -> dist\XPCode-<version>.msi
+build.bat [C:\path\to\tcc.exe]      -> build\xpico-code.exe
+python installer\build_msi.py       -> dist\XPicoCode-<version>.msi
 python tools\make_icon.py           -> res\icon.ico from res\icon.png (only when changing the icon)
 ```
 
-`build.bat` uses `tcc.exe` from `PATH` when no path is given. A running `build\xpcode.exe` is moved
-aside before linking, so XP Code can rebuild itself from its own terminal with Ctrl+Shift+B.
+`build.bat` uses `tcc.exe` from `PATH` when no path is given. A running `build\xpico-code.exe` is moved
+aside before linking, so XPico Code can rebuild itself from its own terminal with Ctrl+Shift+B.
 
 The version number lives in one place: `APP_VERSION` in `src/xpcode.h`. The resource embedder and
 the installer both read it from there.
@@ -147,7 +147,7 @@ build.bat       build script
   redirected pipes and its own hidden console. Output is read on a background thread and parsed for
   carriage returns, backspaces, form feeds (`cls`) and error locations. Ctrl+C attaches to the
   hidden console with `AttachConsole` and sends `GenerateConsoleCtrlEvent`. Each terminal runs
-  inside a Job Object, so killing it, or closing XP Code, also ends its child processes.
+  inside a Job Object, so killing it, or closing XPico Code, also ends its child processes.
 - **Resources.** Tiny C Compiler cannot compile `.rc` scripts, so `tools/embed_resources.py` builds
   the icon, version and manifest resources and appends them to the linked executable as a new
   `.rsrc` section.

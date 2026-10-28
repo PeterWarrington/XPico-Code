@@ -1,12 +1,12 @@
-"""Build the XP Code Windows Installer package: dist\\XPCode-<version>.msi
+"""Build the XPico Code Windows Installer package: dist\\XPicoCode-<version>.msi
 
 Uses only Python's standard msilib module, which talks to Windows Installer (msi.dll) directly,
 so no WiX or .NET is needed and it runs on Windows XP with Python 3.4.
 
-    build.bat                         (build\\xpcode.exe must exist)
+    build.bat                         (build\\xpico-code.exe must exist)
     python installer\\build_msi.py
 
-The package installs per machine into "Program Files\\XP Code", adds a Start Menu shortcut, an
+The package installs per machine into "Program Files\\XPico Code", adds a Start Menu shortcut, an
 optional desktop shortcut and an Add/Remove Programs entry, and upgrades older versions in place.
 """
 import msilib
@@ -37,9 +37,9 @@ def app_version():
 
 
 def stage_files(stage):
-    exe = os.path.join(ROOT, "build", "xpcode.exe")
+    exe = os.path.join(ROOT, "build", "xpico-code.exe")
     if not os.path.exists(exe):
-        raise SystemExit("build\\xpcode.exe not found - run build.bat first")
+        raise SystemExit("build\\xpico-code.exe not found - run build.bat first")
     if os.path.isdir(stage):
         shutil.rmtree(stage)
     os.makedirs(stage)
@@ -127,7 +127,7 @@ def add_ui(db, version):
     d.text("FolderLabel", 20, 60, 320, 12, 3, "&Install [ProductName] to:")
     d.control("Folder", "PathEdit", 20, 74, 330, 18, 3, "INSTALLDIR", None, "Desktop", None)
     d.checkbox("Desktop", 20, 104, 330, 14, 3, "DESKTOPSHORTCUT", "Create a &desktop shortcut", "Back")
-    d.text("SpaceNote", 20, 130, 330, 30, 3, "Settings are stored per user in Application Data\\XP Code.")
+    d.text("SpaceNote", 20, 130, 330, 30, 3, "Settings are stored per user in Application Data\\XPico Code.")
     b, n, c = buttons(d, True, True, True, "&Install", first="Folder")
     b.event("NewDialog", "WelcomeDlg")
     n.event("SetTargetPath", "INSTALLDIR", ordering=1)
@@ -195,17 +195,17 @@ def main():
     dist = os.path.join(ROOT, "dist")
     stage = os.path.join(dist, "stage")
     stage_files(stage)
-    msi_path = os.path.join(dist, "XPCode-%s.msi" % version)
+    msi_path = os.path.join(dist, "XPicoCode-%s.msi" % version)
     if os.path.exists(msi_path):
         os.remove(msi_path)
 
-    db = msilib.init_database(msi_path, schema, "XP Code", guid("product " + version), version, MANUFACTURER)
+    db = msilib.init_database(msi_path, schema, "XPico Code", guid("product " + version), version, MANUFACTURER)
     add_tables(db, sequence)
     si = db.GetSummaryInformation(10)
-    si.SetProperty(msilib.PID_TITLE, "XP Code %s Installer" % version)
-    si.SetProperty(msilib.PID_SUBJECT, "XP Code")
+    si.SetProperty(msilib.PID_TITLE, "XPico Code %s Installer" % version)
+    si.SetProperty(msilib.PID_SUBJECT, "XPico Code")
     si.SetProperty(msilib.PID_COMMENTS, "A code editor with an integrated terminal, in plain Win32.")
-    si.SetProperty(msilib.PID_KEYWORDS, "Installer, XP Code, editor")
+    si.SetProperty(msilib.PID_KEYWORDS, "Installer, XPico Code, editor")
     si.Persist()
 
     icon = os.path.join(ROOT, "res", "icon.ico")
@@ -231,31 +231,31 @@ def main():
     cab = msilib.CAB("xpcode")
     root = msilib.Directory(db, cab, None, stage, "TARGETDIR", "SourceDir")
     pf = msilib.Directory(db, cab, root, stage, "ProgramFilesFolder", "PFiles")
-    feature = msilib.Feature(db, "Complete", "XP Code", "The XP Code editor.", 1, directory="INSTALLDIR")
+    feature = msilib.Feature(db, "Complete", "XPico Code", "The XPico Code editor.", 1, directory="INSTALLDIR")
     feature.set_current()
-    inst = msilib.Directory(db, cab, pf, stage, "INSTALLDIR", "XPCODE|XP Code")
+    inst = msilib.Directory(db, cab, pf, stage, "INSTALLDIR", "XPico Code|XPico Code")
     # Python 3.4's start_component(keyfile=...) is broken, so key paths are set afterwards
-    inst.start_component("XPCode", flags=0, uuid=guid("component xpcode.exe"))
-    set_key_path(db, "XPCode", inst.add_file("xpcode.exe", version=version + ".0", language="1033"))
+    inst.start_component("XPicoCode", flags=0, uuid=guid("component xpico-code.exe"))
+    set_key_path(db, "XPicoCode", inst.add_file("xpico-code.exe", version=version + ".0", language="1033"))
     inst.add_file("LICENSE.txt")
     cab.commit(db)
 
     # shortcuts
     add_data(db, "Directory", [("ProgramMenuFolder", "TARGETDIR", "."),
-                               ("XPCodeMenu", "ProgramMenuFolder", "XPCODE|XP Code"),
+                               ("XPicoCodeMenu", "ProgramMenuFolder", "XPico Code|XPico Code"),
                                ("DesktopFolder", "TARGETDIR", "."),
                                ("PersonalFolder", "TARGETDIR", ".")])
     add_data(db, "Component", [("DesktopShortcut", guid("component desktop shortcut"), "INSTALLDIR", 4,
                                 'DESKTOPSHORTCUT="1"', "DesktopShortcutReg")])
     add_data(db, "FeatureComponents", [("Complete", "DesktopShortcut")])
-    add_data(db, "Registry", [("DesktopShortcutReg", 2, "Software\\XP Code", "DesktopShortcut", "#1", "DesktopShortcut")])
+    add_data(db, "Registry", [("DesktopShortcutReg", 2, "Software\\XPico Code", "DesktopShortcut", "#1", "DesktopShortcut")])
     add_data(db, "Shortcut", [
-        ("StartMenuShortcut", "XPCodeMenu", "XPCODE|XP Code", "XPCode", "[INSTALLDIR]xpcode.exe", None,
+        ("StartMenuShortcut", "XPicoCodeMenu", "XPico Code|XPico Code", "XPicoCode", "[INSTALLDIR]xpico-code.exe", None,
          "Code editor with an integrated terminal", None, None, None, None, "PersonalFolder"),
-        ("DesktopShortcutLnk", "DesktopFolder", "XPCODE|XP Code", "DesktopShortcut", "[INSTALLDIR]xpcode.exe", None,
+        ("DesktopShortcutLnk", "DesktopFolder", "XPico Code|XPico Code", "DesktopShortcut", "[INSTALLDIR]xpico-code.exe", None,
          "Code editor with an integrated terminal", None, None, None, None, "PersonalFolder")])
-    add_data(db, "RemoveFile", [("RemoveMenuFolder", "XPCode", None, "XPCodeMenu", 2)])
-    add_data(db, "CustomAction", [("LaunchApp", 34 | 192, "INSTALLDIR", '"[INSTALLDIR]xpcode.exe"')])
+    add_data(db, "RemoveFile", [("RemoveMenuFolder", "XPicoCode", None, "XPicoCodeMenu", 2)])
+    add_data(db, "CustomAction", [("LaunchApp", 34 | 192, "INSTALLDIR", '"[INSTALLDIR]xpico-code.exe"')])
 
     add_ui(db, version)
     db.Commit()

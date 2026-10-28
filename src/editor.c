@@ -1530,14 +1530,14 @@ static void paint_welcome(HDC dc, int x0, int y0, int w, int h)
         { "New File...", CMD_NEW_FILE }, { "Open File...", CMD_OPEN_FILE }, { "Open Folder...", CMD_OPEN_FOLDER },
         { "Run Build Task", CMD_BUILD_TASK }, { "New Terminal", CMD_NEW_TERMINAL } };
     static const struct { const char *title, *desc, *key; int cmd; } cards[] = {
-        { "Command Palette", "Find and run every command in XP Code.", "Ctrl+Shift+P", CMD_PALETTE },
+        { "Command Palette", "Find and run every command in XPico Code.", "Ctrl+Shift+P", CMD_PALETTE },
         { "Integrated Terminal", "A real cmd.exe, right inside the editor.", "Ctrl+`", CMD_FOCUS_TERMINAL },
         { "Quick Open", "Jump to any file in the folder by name.", "Ctrl+P", CMD_QUICK_OPEN },
         { "Run and Build", "F5 compiles C with TCC, runs Python and batch.", "F5", CMD_RUN_FILE },
         { "Keyboard Shortcuts", "Learn the keys that make you fast.", "", CMD_SHORTCUTS } };
     s_nlinks = 0;
     fill(dc, x0, y0, w, h, C_EDITOR_BG);
-    text_at(dc, lx, y, "XP Code", -1, HEX(0xCCCCCC), g_fTitle);
+    text_at(dc, lx, y, "XPico Code", -1, HEX(0xCCCCCC), g_fTitle);
     y += 58;
     text_at(dc, lx, y, "A code editor in plain Win32", -1, HEX(0x9D9D9D), g_fHeading);
     y += 60;

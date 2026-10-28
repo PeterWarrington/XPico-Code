@@ -7,7 +7,7 @@ appends it to the PE file as a new ".rsrc" section and points the resource data 
   RT_VERSION              1  built from APP_VERSION in src\\xpcode.h
   RT_MANIFEST             1  Common Controls 6 (XP visual styles for dialogs and message boxes)
 
-    python tools\\embed_resources.py build\\xpcode.exe
+    python tools\\embed_resources.py build\\xpico-code.exe
 """
 import os
 import re
@@ -20,8 +20,8 @@ LANG_EN_US = 0x0409
 
 MANIFEST = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity version="{v}.0" processorArchitecture="x86" name="XPCode.XPCode" type="win32"/>
-  <description>XP Code</description>
+  <assemblyIdentity version="{v}.0" processorArchitecture="x86" name="XPicoCode.XPicoCode" type="win32"/>
+  <description>XPico Code</description>
   <dependency>
     <dependentAssembly>
       <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0"
@@ -56,10 +56,10 @@ def version_resource(ver):
     dotted = "%d.%d.%d" % ver
     fixed = struct.pack("<13I", 0xFEEF04BD, 0x00010000, (major << 16) | minor, patch << 16,
                         (major << 16) | minor, patch << 16, 0x3F, 0, 0x00040004, 1, 0, 0, 0)
-    strings = [("CompanyName", "Peter Warrington (lilpete.me)"), ("FileDescription", "XP Code"),
+    strings = [("CompanyName", "Peter Warrington (lilpete.me)"), ("FileDescription", "XPico Code"),
                ("FileVersion", dotted), ("InternalName", "xpcode"),
-               ("LegalCopyright", "Copyright (c) 2026 Peter Warrington (lilpete.me). MIT License."), ("OriginalFilename", "xpcode.exe"),
-               ("ProductName", "XP Code"), ("ProductVersion", dotted)]
+               ("LegalCopyright", "Copyright (c) 2026 Peter Warrington (lilpete.me). MIT License."), ("OriginalFilename", "xpico-code.exe"),
+               ("ProductName", "XPico Code"), ("ProductVersion", dotted)]
     table = node("040904B0", children=[
         node(k, (v + "\0").encode("utf-16-le"), len(v) + 1, text=True) for k, v in strings])
     return node("VS_VERSION_INFO", fixed, len(fixed), children=[

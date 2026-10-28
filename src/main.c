@@ -697,7 +697,7 @@ static void show_shortcuts(void)
         CMD_FOCUS_TERMINAL, CMD_NEW_TERMINAL, CMD_RUN_FILE, CMD_BUILD_TASK, CMD_NEXT_EDITOR, CMD_PREV_EDITOR,
         CMD_ZOOM_IN, CMD_ZOOM_OUT, 0 };
     char *buf = (char *)malloc(8192), line[256]; int i, n = 0;
-    n += sfmt(buf + n, 8192 - n, "XP Code - Keyboard Shortcuts\r\n============================\r\n\r\n");
+    n += sfmt(buf + n, 8192 - n, "XPico Code - Keyboard Shortcuts\r\n============================\r\n\r\n");
     for (i = 0; cmds[i]; i++) {
         sfmt(line, sizeof line, "%-36s %s\r\n", command_name(cmds[i]), command_key(cmds[i]));
         n += sfmt(buf + n, 8192 - n, "%s", line);
@@ -1008,12 +1008,12 @@ static void add_tools_to_path(void)
     free(path); free(np);
 }
 
-/* settings live in %APPDATA%\XP Code\xpcode.ini so the program folder can stay read-only */
+/* settings live in %APPDATA%\XPico Code\xpcode.ini so the program folder can stay read-only */
 static void locate_settings(void)
 {
     char dir[MAX_PATH];
     if (SUCCEEDED(SHGetFolderPath(NULL, CSIDL_APPDATA, NULL, 0, dir))) {
-        sfmt(s_ini, sizeof s_ini, "%s\\XP Code", dir);
+        sfmt(s_ini, sizeof s_ini, "%s\\XPico Code", dir);
         CreateDirectory(s_ini, NULL);
         strcat(s_ini, "\\xpcode.ini");
     } else sfmt(s_ini, sizeof s_ini, "%sxpcode.ini", g_exeDir);
@@ -1039,7 +1039,7 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE prev, LPSTR cmdline, int show)
     make_fonts();
 
     memset(&wc, 0, sizeof wc);
-    wc.lpfnWndProc = MainProc; wc.hInstance = hi; wc.lpszClassName = "XPCodeMain";
+    wc.lpfnWndProc = MainProc; wc.hInstance = hi; wc.lpszClassName = "XPicoCodeMain";
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hIcon = LoadIcon(hi, MAKEINTRESOURCE(IDI_APP));
     if (!wc.hIcon) wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
@@ -1051,7 +1051,7 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE prev, LPSTR cmdline, int show)
     x = GetPrivateProfileInt("ui", "x", (GetSystemMetrics(SM_CXSCREEN) - cw) / 2, s_ini);
     y = GetPrivateProfileInt("ui", "y", (GetSystemMetrics(SM_CYSCREEN) - ch) / 2 - 20, s_ini);
     mx = GetPrivateProfileInt("ui", "max", 0, s_ini);
-    g_hwndMain = CreateWindowEx(WS_EX_ACCEPTFILES, "XPCodeMain", APP_NAME, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+    g_hwndMain = CreateWindowEx(WS_EX_ACCEPTFILES, "XPicoCodeMain", APP_NAME, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                                 x, y, cw, ch, NULL, build_menu(), hi, NULL);
     {
         HICON smallIcon = (HICON)LoadImage(hi, MAKEINTRESOURCE(IDI_APP), IMAGE_ICON, 16, 16, 0);
