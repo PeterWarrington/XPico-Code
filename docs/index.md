@@ -14,7 +14,7 @@
   <br/>
 <a href="http://lilpete.me/xpcode/XPCode-1.0.0.exe">Download standalone .exe</a>
   <br/>
-<a href="http://github.com/PeterWarrington/">See GitHub Repo</a>
+<a href="http://github.com/PeterWarrington/XPico-Code">See GitHub Repo</a>
 </p>
 
 ![XPico Code editing its own source while rebuilding itself in the integrated terminal](docs/screenshot.png)
