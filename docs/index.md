@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="http://github.com/PeterWarrington/XPico-Code/blob/main/res/icon.png?raw=true" width="96" height="96" alt="XP Code icon">
+  <img src="icon.png" width="96" height="96" alt="XP Code icon">
 </p>
 
 <h1 align="center">XP Code</h1>
@@ -10,9 +10,9 @@
 </p>
 
 <p align="center">
-<a href="http://github.com/PeterWarrington/XP-Code/releases/download/1.0.0/XPCode-1.0.0.msi">Download installer .msi</a>
+<a href="http://lilpete.me/xpcode/XPCode-1.0.0.msi">Download installer .msi</a>
   <br/>
-<a href="http://github.com/PeterWarrington/XP-Code/releases/download/1.0.0/XPCode-1.0.0.exe">Download standalone .exe</a>
+<a href="http://lilpete.me/xpcode/XPCode-1.0.0.exe">Download standalone .exe</a>
   <br/>
 <a href="http://github.com/PeterWarrington/">See GitHub Repo</a>
 </p>
