@@ -17,7 +17,7 @@
 <a href="http://github.com/PeterWarrington/XPico-Code">See GitHub Repo</a>
 </p>
 
-<img src="screenshot.png" alt="XPico Code editing its own source while rebuilding itself in the integrated terminal" width="500px">
+<center><img src="screenshot.png" alt="XPico Code editing its own source while rebuilding itself in the integrated terminal" width="750px"></center>
 
 ## Features
 
