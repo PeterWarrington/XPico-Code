@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="res/icon.png" width="96" height="96" alt="XP Code icon">
+  <img src="https://github.com/PeterWarrington/XPico-Code/blob/main/res/icon.png?raw=true" width="96" height="96" alt="XP Code icon">
 </p>
 
 <h1 align="center">XP Code</h1>
@@ -17,7 +17,7 @@
 <a href="https://github.com/PeterWarrington/">See GitHub Repo</a>
 </p>
 
-![XP Code editing its own source while rebuilding itself in the integrated terminal](docs/screenshot.png)
+![XP Code editing its own source while rebuilding itself in the integrated terminal](screenshot.png)
 
 ## Features
 
