@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="icon.png" width="96" height="96" alt="XP Code icon">
+  <img src="icon.png" width="96" height="96" alt="XPico Code icon">
 </p>
 
-<h1 align="center">XP Code</h1>
+<h1 align="center">XPico Code</h1>
 
 <p align="center">
   A VS Code-style editor in under 200kb and compatible with Windows XP.<br>
@@ -17,7 +17,7 @@
 <a href="http://github.com/PeterWarrington/">See GitHub Repo</a>
 </p>
 
-![XP Code editing its own source while rebuilding itself in the integrated terminal](screenshot.png)
+![XPico Code editing its own source while rebuilding itself in the integrated terminal](docs/screenshot.png)
 
 ## Features
 
