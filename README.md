@@ -15,6 +15,14 @@
 <a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.1.0/XPicoCode-1.1.0.exe">Download standalone .exe</a>
 </p>
 
+<p align="center">
+  Created by Peter Warrington (<a href="http://lilpete.me">lilpete.me</a>)
+</p>
+
+<p align="center">
+  Donate to support me: <a href="https://www.buymeacoffee.com/peterwarrington">buymeacoffee.com/peterwarrington</a>
+</p>
+
 ![XPico Code editing its own source while rebuilding itself in the integrated terminal](docs/screenshot.png)
 
 ## Features

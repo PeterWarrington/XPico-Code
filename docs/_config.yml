@@ -1,0 +1,10 @@
+title: XPico Code
+description: A VS Code-style editor in under 200kb and compatible with Windows XP.
+url: https://code.lilpete.me
+author: Peter Warrington
+markdown: kramdown
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% assign page_title = page.title | default: site.title %}
+  {% assign page_description = page.description | default: site.description %}
+  {% assign page_url = page.url | replace: 'index.html', '' | absolute_url %}
+  {% assign page_image = page.image | default: '/screenshot.png' | absolute_url %}
+  <title>{{ page_title }}</title>
+  <meta name="description" content="{{ page_description | escape }}">
+  <meta name="author" content="{{ site.author }}">
+  <link rel="canonical" href="{{ page_url }}">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ site.title }}">
+  <meta property="og:title" content="{{ page_title | escape }}">
+  <meta property="og:description" content="{{ page_description | escape }}">
+  <meta property="og:url" content="{{ page_url }}">
+  <meta property="og:image" content="{{ page_image }}">
+  <meta property="og:image:alt" content="XPico Code editing its own source while rebuilding itself in the integrated terminal">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ page_title | escape }}">
+  <meta name="twitter:description" content="{{ page_description | escape }}">
+  <meta name="twitter:image" content="{{ page_image }}">
+  <meta name="twitter:image:alt" content="XPico Code editing its own source while rebuilding itself in the integrated terminal">
+
+  <link rel="icon" href="{{ '/icon.png' | relative_url }}">
+  <link rel="stylesheet" href="https://unpkg.com/xp.css@0.2.6/dist/XP.css">
+  <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
+</head>
+<body>
+  <div class="window main-window">
+    <div class="title-bar">
+      <div class="title-bar-text">{{ site.title }}</div>
+      <div class="title-bar-controls">
+        <button aria-label="Minimize" tabindex="-1"></button>
+        <button aria-label="Maximize" tabindex="-1"></button>
+        <button aria-label="Close" tabindex="-1"></button>
+      </div>
+    </div>
+    <div class="window-body">
+      {{ content }}
+    </div>
+    <div class="status-bar">
+      <p class="status-bar-field">Theme: <a href="https://botoxparty.github.io/XP.css">XP.css</a></p>
+      <p class="status-bar-field"><a href="https://lilpete.me">lilpete.me</a></p>
+      <p class="status-bar-field"><a href="https://www.buymeacoffee.com/peterwarrington">Donate</a></p>
+    </div>
+  </div>
+</body>
+</html>

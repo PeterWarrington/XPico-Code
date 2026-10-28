@@ -1,3 +1,7 @@
+---
+title: XPico Code - A VS Code-style editor for Windows XP
+description: A VS Code-style editor in under 200kb and compatible with Windows XP. No Electron, no Chromium - all Win32 C, built with Tiny C Compiler.
+---
 <p align="center">
   <img src="icon.png" width="96" height="96" alt="XPico Code icon">
 </p>
@@ -10,14 +14,22 @@
 </p>
 
 <p align="center">
-<a href="http://lilpete.me/xpcode/XPCode-1.1.0.msi">Download installer .msi</a>
+<a class="button" href="http://lilpete.me/xpcode/XPCode-1.1.0.msi">Download installer .msi</a>
   <br/>
-<a href="http://lilpete.me/xpcode/XPCode-1.1.0.exe">Download standalone .exe</a>
+<a class="button" href="http://lilpete.me/xpcode/XPCode-1.1.0.exe">Download standalone .exe</a>
   <br/>
-<a href="http://github.com/PeterWarrington/XPico-Code">See GitHub Repo</a>
+<a class="button" href="http://github.com/PeterWarrington/XPico-Code">See GitHub Repo</a>
 </p>
 
-<center><img src="screenshot.png" alt="XPico Code editing its own source while rebuilding itself in the integrated terminal" width="750px"></center>
+<p align="center">
+  Created by Peter Warrington (<a href="http://lilpete.me">lilpete.me</a>)
+</p>
+
+<p align="center">
+  Donate to support me: <a href="https://www.buymeacoffee.com/peterwarrington">buymeacoffee.com/peterwarrington</a>
+</p>
+
+<p class="screenshot"><img src="screenshot.png" alt="XPico Code editing its own source while rebuilding itself in the integrated terminal"></p>
 
 ## Features
 
