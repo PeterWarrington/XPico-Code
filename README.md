@@ -10,9 +10,9 @@
 </p>
 
 <p align="center">
-<a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.0.0/XPicoCode-1.0.0.msi">Download installer .msi</a>
+<a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.1.0/XPicoCode-1.1.0.msi">Download installer .msi</a>
   <br/>
-<a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.0.0/XPicoCode-1.0.0.exe">Download standalone .exe</a>
+<a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.1.0/XPicoCode-1.1.0.exe">Download standalone .exe</a>
 </p>
 
 ![XPico Code editing its own source while rebuilding itself in the integrated terminal](docs/screenshot.png)

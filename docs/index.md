@@ -10,9 +10,9 @@
 </p>
 
 <p align="center">
-<a href="http://lilpete.me/xpcode/XPCode-1.0.0.msi">Download installer .msi</a>
+<a href="http://lilpete.me/xpcode/XPCode-1.1.0.msi">Download installer .msi</a>
   <br/>
-<a href="http://lilpete.me/xpcode/XPCode-1.0.0.exe">Download standalone .exe</a>
+<a href="http://lilpete.me/xpcode/XPCode-1.1.0.exe">Download standalone .exe</a>
   <br/>
 <a href="http://github.com/PeterWarrington/XPico-Code">See GitHub Repo</a>
 </p>
