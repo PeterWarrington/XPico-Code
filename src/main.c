@@ -197,9 +197,9 @@ static void PL(HDC dc, const int *pts, int n)
 static void R(HDC dc, int x1, int y1, int x2, int y2) { Rectangle(dc, GX(x1), GY(y1), GX(x2) + 1, GY(y2) + 1); }
 static void E(HDC dc, int x1, int y1, int x2, int y2) { Ellipse(dc, GX(x1), GY(y1), GX(x2) + 1, GY(y2) + 1); }
 
-void draw_icon(HDC dc, int icon, int cx, int cy, int sz, COLORREF c)
+static void draw_icon_raw(HDC dc, int icon, int cx, int cy, int sz, COLORREF c, int penw)
 {
-    HPEN pen = CreatePen(PS_SOLID, sz >= 24 ? 2 : 1, c), op = (HPEN)SelectObject(dc, pen);
+    HPEN pen = CreatePen(PS_SOLID, penw, c), op = (HPEN)SelectObject(dc, pen);
     HBRUSH ob = (HBRUSH)SelectObject(dc, GetStockObject(NULL_BRUSH));
     HBRUSH solid = NULL;
     IX = cx; IY = cy; IS = sz;
@@ -218,8 +218,8 @@ void draw_icon(HDC dc, int icon, int cx, int cy, int sz, COLORREF c)
         static const int d[8][2] = { {10,0},{7,7},{0,10},{-7,7},{-10,0},{-7,-7},{0,-10},{7,-7} };
         int i; E(dc, 5, 5, 11, 11);
         for (i = 0; i < 8; i++) {
-            MoveToEx(dc, cx + d[i][0] * IS * 5 / 160, cy + d[i][1] * IS * 5 / 160, NULL);
-            LineTo(dc, cx + d[i][0] * IS * 7 / 160, cy + d[i][1] * IS * 7 / 160);
+            MoveToEx(dc, IX + d[i][0] * IS * 5 / 160, IY + d[i][1] * IS * 5 / 160, NULL);
+            LineTo(dc, IX + d[i][0] * IS * 7 / 160, IY + d[i][1] * IS * 7 / 160);
         }
         break; }
     case ICON_CHEVRON_RIGHT: { int p[] = { 6,4, 10,8, 6,12 }; PL(dc, p, 3); break; }
@@ -264,6 +264,63 @@ void draw_icon(HDC dc, int icon, int cx, int cy, int sz, COLORREF c)
     }
     SelectObject(dc, ob); SelectObject(dc, op); DeleteObject(pen);
     if (solid) DeleteObject(solid);
+}
+
+/* GDI has no anti-aliased line drawing, so icons are drawn white-on-black at IC_SS times the size into an
+ * offscreen bitmap, averaged down to a per-pixel coverage, and blended over whatever is already on dc. */
+#define IC_SS 4
+#define IC_PAD 2
+#define IC_MAXSZ 36
+
+void draw_icon(HDC dc, int icon, int cx, int cy, int sz, COLORREF c)
+{
+    int box = sz + 2 * IC_PAD, bw = box * IC_SS, left = cx - sz / 2 - IC_PAD, top = cy - sz / 2 - IC_PAD, x, y, i, j;
+    HDC bigDC, dstDC; HBITMAP bigBmp, dstBmp, bigOld, dstOld; BITMAPINFO bi; DWORD *big, *dst;
+    int cr = GetRValue(c), cg = GetGValue(c), cb = GetBValue(c);
+    if (sz > IC_MAXSZ) { draw_icon_raw(dc, icon, cx, cy, sz, c, sz >= 24 ? 2 : 1); return; }
+    big = (DWORD *)malloc((size_t)bw * bw * 4); dst = (DWORD *)malloc((size_t)box * box * 4);
+    bigDC = CreateCompatibleDC(dc); dstDC = CreateCompatibleDC(dc);
+    bigBmp = CreateCompatibleBitmap(dc, bw, bw); dstBmp = CreateCompatibleBitmap(dc, box, box);
+    if (!big || !dst || !bigDC || !dstDC || !bigBmp || !dstBmp) {
+        if (bigBmp) DeleteObject(bigBmp);
+        if (dstBmp) DeleteObject(dstBmp);
+        if (bigDC) DeleteDC(bigDC);
+        if (dstDC) DeleteDC(dstDC);
+        free(big); free(dst);
+        draw_icon_raw(dc, icon, cx, cy, sz, c, sz >= 24 ? 2 : 1);
+        return;
+    }
+    memset(&bi, 0, sizeof bi);
+    bi.bmiHeader.biSize = sizeof bi.bmiHeader; bi.bmiHeader.biPlanes = 1; bi.bmiHeader.biBitCount = 32;
+
+    bigOld = (HBITMAP)SelectObject(bigDC, bigBmp);
+    PatBlt(bigDC, 0, 0, bw, bw, BLACKNESS);
+    /* centre on a pixel centre so 1px strokes land on whole pixels like the unscaled drawing did */
+    draw_icon_raw(bigDC, icon, (sz / 2 + IC_PAD) * IC_SS + IC_SS / 2, (sz / 2 + IC_PAD) * IC_SS + IC_SS / 2,
+                  sz * IC_SS, RGB(255, 255, 255), sz >= 24 ? IC_SS * 7 / 4 : IC_SS * 9 / 8);
+    SelectObject(bigDC, bigOld);
+    bi.bmiHeader.biWidth = bw; bi.bmiHeader.biHeight = -bw;
+    GetDIBits(bigDC, bigBmp, 0, bw, big, &bi, DIB_RGB_COLORS);
+
+    dstOld = (HBITMAP)SelectObject(dstDC, dstBmp);
+    BitBlt(dstDC, 0, 0, box, box, dc, left, top, SRCCOPY);
+    SelectObject(dstDC, dstOld);
+    bi.bmiHeader.biWidth = box; bi.bmiHeader.biHeight = -box;
+    GetDIBits(dstDC, dstBmp, 0, box, dst, &bi, DIB_RGB_COLORS);
+
+    for (y = 0; y < box; y++) for (x = 0; x < box; x++) {
+        int sum = 0, cov, db, dg, dr; DWORD d = dst[y * box + x];
+        for (j = 0; j < IC_SS; j++) for (i = 0; i < IC_SS; i++) sum += big[(y * IC_SS + j) * bw + x * IC_SS + i] & 0xFF;
+        cov = sum / (IC_SS * IC_SS);
+        if (!cov) continue;
+        db = d & 0xFF; dg = (d >> 8) & 0xFF; dr = (d >> 16) & 0xFF;
+        dst[y * box + x] = ((DWORD)(dr + (cr - dr) * cov / 255) << 16) | ((DWORD)(dg + (cg - dg) * cov / 255) << 8) |
+                           (DWORD)(db + (cb - db) * cov / 255);
+    }
+    SetDIBitsToDevice(dc, left, top, box, box, 0, 0, 0, box, dst, &bi, DIB_RGB_COLORS);
+
+    DeleteObject(bigBmp); DeleteObject(dstBmp); DeleteDC(bigDC); DeleteDC(dstDC);
+    free(big); free(dst);
 }
 
 /* small coloured file-type badge, like the Seti icon theme */
@@ -767,6 +824,8 @@ void app_command(int cmd)
     case CMD_SHORTCUTS: show_shortcuts(); break;
     case CMD_WELCOME: editor_command(CMD_WELCOME); break;
     case CMD_FOCUS_EDITOR: editor_focus(); break;
+    case CMD_WEBSITE: ShellExecute(g_hwndMain, "open", "http://code.lilpete.me", NULL, NULL, SW_SHOWNORMAL); break;
+    case CMD_DONATE: ShellExecute(g_hwndMain, "open", "https://www.buymeacoffee.com/peterwarrington", NULL, NULL, SW_SHOWNORMAL); break;
     case CMD_ABOUT:
         {
             MSGBOXPARAMS mb; memset(&mb, 0, sizeof mb);
@@ -907,6 +966,9 @@ static HMENU build_menu(void)
     AppendMenu(t, MF_STRING, CMD_RUN_FILE, "Run &Active File\tF5");
     AppendMenu(h, MF_STRING, CMD_WELCOME, "&Welcome");
     AppendMenu(h, MF_STRING, CMD_SHORTCUTS, "&Keyboard Shortcuts Reference");
+    AppendMenu(h, MF_SEPARATOR, 0, NULL);
+    AppendMenu(h, MF_STRING, CMD_WEBSITE, "&Visit Project Website...");
+    AppendMenu(h, MF_STRING, CMD_DONATE, "&Donate to Developer :)");
     AppendMenu(h, MF_SEPARATOR, 0, NULL);
     AppendMenu(h, MF_STRING, CMD_ABOUT, "&About");
     AppendMenu(bar, MF_POPUP, (UINT_PTR)f, "&File");

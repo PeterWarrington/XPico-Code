@@ -60,6 +60,8 @@ static const Command s_cmds[] = {
     { CMD_FOCUS_EDITOR, "View: Focus Active Editor", "" },
     { CMD_WELCOME, "Help: Welcome", "" },
     { CMD_SHORTCUTS, "Help: Keyboard Shortcuts Reference", "" },
+    { CMD_WEBSITE, "Help: Visit Project Website", "" },
+    { CMD_DONATE, "Help: Donate to Developer", "" },
     { CMD_ABOUT, "Help: About", "" },
     { CMD_EXIT, "File: Exit", "Alt+F4" },
     { 0, NULL, NULL }
