@@ -9,7 +9,7 @@ description: A VS Code-style editor in under 200kb. Compatible with Windows XP. 
 <h1 align="center">XPico Code</h1>
 
 <p align="center">
-  A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9, OSX, and higher.<br>
+  A VS Code-style editor in under 200kb. <br> Compatible with Windows XP. Compatible with MacOS 9, OSX, and higher.<br>
   Small, lightweight, modern, compatible.
 </p>
 
