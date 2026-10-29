@@ -50,7 +50,7 @@ description: A VS Code-style editor in under 200kb. Compatible with Windows 95 a
   Donate to support me: <a href="https://www.buymeacoffee.com/peterwarrington">buymeacoffee.com/peterwarrington</a>
 </p>
 
-<p class="screenshot"><img src="screenshot.png" alt="XPico Code editing its own source while rebuilding itself in the integrated terminal" width="750px"></p>
+<p class="screenshot"><img src="screenshot.png" alt="XPico Code editing its own source while rebuilding itself in the integrated terminal" width="750px" style="max-width: 95vw"></p>
 
 ## Features
 
