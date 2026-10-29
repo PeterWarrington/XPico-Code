@@ -14,9 +14,9 @@ description: A VS Code-style editor in under 200kb and compatible with Windows X
 </p>
 
 <p align="center">
-<a class="button" href="http://lilpete.me/xpcode/XPCode-1.1.0.msi">Download installer .msi</a>
+<a class="button" href="http://lilpete.me/xpcode/XPicoCode-1.1.0.msi">Download installer .msi</a>
   <br/>
-<a class="button" href="http://lilpete.me/xpcode/XPCode-1.1.0.exe">Download standalone .exe</a>
+<a class="button" href="http://lilpete.me/xpcode/XPicoCode-1.1.0.exe">Download standalone .exe</a>
   <br/>
 <a class="button" href="http://github.com/PeterWarrington/XPico-Code">See GitHub Repo</a>
 </p>
