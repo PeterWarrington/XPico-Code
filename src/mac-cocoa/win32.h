@@ -51,11 +51,18 @@
 #include <stdarg.h>
 
 /* ---- scalar types ---- */
+/* DWORD, LONG and COLORREF are exactly 32 bits, as they are on Win32 -- not
+ * "unsigned long", which would be 64 on any 64-bit host. The target is
+ * 32-bit PowerPC, where the two are the same thing, but the DIB code hands
+ * the app arrays of DWORDs that it has sized itself, so the width of the type
+ * has to be the Win32 one or those arrays overflow. WPARAM, LPARAM and the
+ * _PTR types stay pointer-sized, which is what Win32 makes them too: the app
+ * passes pointers through wParam. */
 typedef int                 BOOL;
 typedef unsigned char       BYTE;
 typedef unsigned short      WORD;
-typedef unsigned long       DWORD;
-typedef long                LONG;
+typedef unsigned int        DWORD;
+typedef int                 LONG;
 typedef unsigned int        UINT;
 typedef const char         *LPCSTR;
 typedef char               *LPSTR;
@@ -63,7 +70,9 @@ typedef void               *LPVOID;
 typedef long                LPARAM;
 typedef unsigned long       WPARAM;
 typedef long                LRESULT;
-typedef unsigned long       COLORREF;
+typedef unsigned int        COLORREF;
+typedef long                INT_PTR;
+typedef unsigned long       UINT_PTR;
 
 #ifndef TRUE
 #define TRUE  1
@@ -128,6 +137,7 @@ typedef struct { LONG cx, cy; } SIZE, *LPSIZE;
 #define WM_RBUTTONDOWN   0x0204
 #define WM_MBUTTONDOWN   0x0207
 #define WM_MOUSEWHEEL    0x020A
+#define WM_MOUSEHWHEEL   0x020E
 #define WM_MOUSELEAVE    0x02A3
 #define WM_ACTIVATEAPP   0x001C
 #define WM_DROPFILES     0x0233
@@ -327,7 +337,9 @@ HANDLE  SetClipboardData(UINT fmt, HANDLE mem);
 /* menus, over NSMenu */
 HMENU   CreateMenu(void);
 HMENU   CreatePopupMenu(void);
-BOOL    AppendMenu(HMENU m, UINT flags, UINT id, LPCSTR text);
+/* The id is a UINT_PTR, as it is in Win32: for an MF_POPUP item it carries
+ * the submenu handle rather than a command id. */
+BOOL    AppendMenu(HMENU m, UINT flags, UINT_PTR id, LPCSTR text);
 BOOL    DestroyMenu(HMENU m);
 BOOL    TrackPopupMenu(HMENU m, UINT flags, int x, int y, int reserved, HWND w, LPVOID r);
 #define MF_STRING 0x0000
@@ -363,7 +375,6 @@ void    mac_drop_release(void *d);
 void   *mac_watch_open(const char *path);
 int     mac_watch_changed(void *h);
 void    mac_watch_close(void *h);
-int     mac_set_file_type(const char *path, unsigned long type, unsigned long creator);
 void    mac_system_version_string(char *buf, int n);
 
 /* ---- the rest of the surface (mac-cocoa/compat.m) ---- */
@@ -421,8 +432,6 @@ typedef long LONG_PTR;
 #define INFINITE 0xFFFFFFFFUL
 #define WAIT_OBJECT_0 0
 
-typedef long INT_PTR;
-typedef unsigned long UINT_PTR;
 typedef HANDLE HGLOBAL;
 typedef void *LPITEMIDLIST;
 

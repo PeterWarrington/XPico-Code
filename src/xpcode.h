@@ -4,21 +4,50 @@
 #define XPCODE_H
 
 #ifdef MAC_OS
-/* Mac OS 9 / Carbon build: the Win32 API the editor is written against is
- * provided by the shim in src/mac-carbon. Mac OS 9 has no shell, pipes or processes,
- * so the integrated terminal is left out of this build. */
+/* Mac builds: the Win32 API the editor is written against is provided by a
+ * shim, and there are two of them -- src/mac-carbon for Mac OS 9 and Carbon,
+ * src/mac-cocoa for Mac OS X 10.4 and Cocoa. MAC_OS is defined for both, and
+ * everything they share -- the Finder, sh-based run recipes, asking the system
+ * what language a file without an extension is in -- is below. */
+#ifdef MAC_COCOA
+/* Mac OS X 10.4 / PowerPC. terminal.c still goes, because it drives cmd.exe
+ * over Win32 pipes, but the panel that replaces it has a real shell behind it:
+ * src/mac-cocoa/term_pty.c runs one in a pty. */
+#include "mac-cocoa/win32.h"
+#define HAVE_TERMINAL 0
+#define TERMINAL_AVAILABLE() 1
+#define PLATFORM_BLURB "for Mac OS X"
+#define ABOUT_TECH "No Chromium, no Electron - just Quartz, Cocoa and a pty."
+/* Mac OS X is UTF-8: file contents, file names and the pasteboard alike. The
+ * editor is byte-oriented, so a multi-byte character draws correctly but
+ * counts as several columns -- see the note in src/mac-cocoa/sys.m. */
+#define TEXT_ENCODING_NAME "UTF-8"
+/* Monaco reports an ascender of a whole em -- a quarter more than Lucida
+ * Console does -- so its glyph box already carries the leading that the gap
+ * below is there to supply on Windows. Adding the Windows figure on top of
+ * that reads as double spacing. */
+#define CODE_LINE_PAD 1
+#define LINE_ENDING      "\n"
+#define LINE_ENDING_LEN  1
+#define LINE_ENDING_NAME "LF"
+/* Quartz antialiases every stroke and fill it draws, so main.c can draw the
+ * icons straight rather than supersampling them by hand. */
+#define ICONS_ANTIALIASED 1
+#else
+/* Mac OS 9 / Carbon. Mac OS 9 has no shell, pipes or processes, so the
+ * integrated terminal is left out of this build. */
 #include "mac-carbon/win32.h"
 #define HAVE_TERMINAL 0
 /* Runtime, not compile time: the same Carbon binary runs on Mac OS 9, which has
  * no shell at all, and on Mac OS X, where the xpcode-termd helper provides one.
  * Everything that depends on running a command is hidden when there is none. */
 #define TERMINAL_AVAILABLE() mac_is_osx()
-#define FILE_MANAGER_NAME "Finder"
 /* How the editor describes itself in the welcome screen and the About box.
- * The Windows build is the plain-Win32 one; this build reaches the same Win32
- * surface through the shim in src/mac, so saying "Win32" to the user would be
- * true of the source and meaningless on the machine. */
+ * The Windows build is the plain-Win32 one; these builds reach the same Win32
+ * surface through a shim, so saying "Win32" to the user would be true of the
+ * source and meaningless on the machine. */
 #define PLATFORM_BLURB "for legacy MacOS"
+#define ABOUT_TECH "No Chromium, no Electron - just QuickDraw and Carbon."
 #define TEXT_ENCODING_NAME "Mac OS Roman"
 /* Classic Mac OS terminates lines with a bare CR. Files are written that way
  * so other Mac applications can read them; read_file normalises all three
@@ -26,6 +55,9 @@
 #define LINE_ENDING      "\r"
 #define LINE_ENDING_LEN  1
 #define LINE_ENDING_NAME "CR"
+#define CODE_LINE_PAD 5
+#endif
+#define FILE_MANAGER_NAME "Finder"
 #define BUILD_SCRIPT  "build.sh"
 #define BUILD_COMMAND "cd '%s' && sh build.sh"
 #define TERMINAL_BLURB "A real Unix shell, right inside the editor."
@@ -43,6 +75,11 @@
 #include <commdlg.h>
 #include <shellapi.h>
 #include <shlobj.h>
+/* The horizontal wheel: in the SDK from Vista on, and sent by XP-era
+ * drivers for tilt wheels, so it is worth handling either way. */
+#ifndef WM_MOUSEHWHEEL
+#define WM_MOUSEHWHEEL 0x020E
+#endif
 #define HAVE_TERMINAL 1
 #define TERMINAL_AVAILABLE() 1
 #define FILE_MANAGER_NAME "Windows Explorer"
@@ -56,6 +93,9 @@
 #define TERMINAL_BLURB "A real cmd.exe, right inside the editor."
 #define RUN_BLURB "F5 compiles C with TCC, runs Python and batch."
 #define RUN_RECIPES win_run_recipes
+#define ABOUT_TECH "No Chromium, no Electron - just GDI, USER32 and cmd.exe.\n\nBuilt with Tiny C Compiler on Windows XP."
+/* The gap added to the code font's height to get the editor's line pitch. */
+#define CODE_LINE_PAD 5
 #endif
 #include <stdio.h>
 #include <stdlib.h>
@@ -66,7 +106,11 @@
 /* Path separator. Classic Mac OS uses ':' and has no drive letters, so the
  * editor's own path building and splitting has to follow the host convention
  * or file names come out as whole paths in the tabs and explorer. */
-#ifdef MAC_OS
+#if defined(MAC_COCOA)
+#define PATH_SEP   '/'
+#define PATH_SEPS  "/"
+#define IS_PATH_SEP(c) ((c) == '/')
+#elif defined(MAC_OS)
 #define PATH_SEP   ':'
 #define PATH_SEPS  ":"
 #define IS_PATH_SEP(c) ((c) == ':')
