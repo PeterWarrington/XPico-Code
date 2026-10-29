@@ -131,7 +131,10 @@ static int activate(HDC dc)
 
     if (dc->gw) {
         LockPixels(GetGWorldPixMap(dc->gw));
-        SetGWorld(dc->gw, NULL);        /* NULL device is correct for a GWorld */
+        /* The cast is needed because a Carbon build's CGrafPtr is GrafPort*
+         * while GWorldPtr stays CGrafPort*; a GWorld is a colour port, so
+         * the two denote the same thing. Same at the other call sites. */
+        SetGWorld((CGrafPtr)dc->gw, NULL);  /* NULL device is correct for a GWorld */
     } else {
         /* A window port needs the screen's GDevice named explicitly. Passing
          * NULL here is only valid for a GWorld; on a window port it left the
@@ -783,7 +786,7 @@ int GetDIBits(HDC dc, HBITMAP b, UINT start, UINT lines, LPVOID bits, LPVOID inf
     depth = (*pm)->pixelSize;
 
     GetGWorld(&savePort, &saveDev);
-    SetGWorld(bm->gw, NULL);              /* for the GetCPixel fallback */
+    SetGWorld((CGrafPtr)bm->gw, NULL);    /* for the GetCPixel fallback */
     for (y = 0; y < h; y++)
         for (x = 0; x < w; x++)
             out[y * w + x] = pix_get(pm, base, rowBytes, depth, x, (int)start + y);
@@ -819,7 +822,7 @@ int SetDIBitsToDevice(HDC dc, int x, int y, DWORD w, DWORD h, int sx, int sy,
     depth = (*pm)->pixelSize;
 
     GetGWorld(&savePort, &saveDev);
-    SetGWorld(tmp, NULL);
+    SetGWorld((CGrafPtr)tmp, NULL);
     for (iy = 0; iy < (int)h; iy++) {
         for (ix = 0; ix < (int)w; ix++) {
             DWORD v = in[iy * (int)w + ix];

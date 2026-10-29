@@ -17,7 +17,7 @@
 #define HAVE_TERMINAL 0
 #define TERMINAL_AVAILABLE() 1
 #define PLATFORM_BLURB "for Mac OS X"
-#define ABOUT_TECH "No Chromium, no Electron - just Quartz, Cocoa and a pty."
+#define ABOUT_TECH "Small, lightweight, modern, compatible."
 /* Mac OS X is UTF-8: file contents, file names and the pasteboard alike. The
  * editor is byte-oriented, so a multi-byte character draws correctly but
  * counts as several columns -- see the note in src/mac-cocoa/sys.m. */
@@ -47,7 +47,7 @@
  * surface through a shim, so saying "Win32" to the user would be true of the
  * source and meaningless on the machine. */
 #define PLATFORM_BLURB "for legacy MacOS"
-#define ABOUT_TECH "No Chromium, no Electron - just QuickDraw and Carbon."
+#define ABOUT_TECH "Small, lightweight, modern, compatible. "
 #define TEXT_ENCODING_NAME "Mac OS Roman"
 /* Classic Mac OS terminates lines with a bare CR. Files are written that way
  * so other Mac applications can read them; read_file normalises all three
@@ -93,7 +93,7 @@
 #define TERMINAL_BLURB "A real cmd.exe, right inside the editor."
 #define RUN_BLURB "F5 compiles C with TCC, runs Python and batch."
 #define RUN_RECIPES win_run_recipes
-#define ABOUT_TECH "No Chromium, no Electron - just GDI, USER32 and cmd.exe.\n\nBuilt with Tiny C Compiler on Windows XP."
+#define ABOUT_TECH "Small, lightweight, modern, compatible.\n\nBuilt with Tiny C Compiler on Windows XP."
 /* The gap added to the code font's height to get the editor's line pitch. */
 #define CODE_LINE_PAD 5
 #endif
@@ -121,7 +121,7 @@
 #endif
 
 #define APP_NAME "XPico Code"
-#define APP_VERSION "1.1.1"
+#define APP_VERSION "1.2.0"
 #define IDI_APP 1        /* icon resource embedded by tools/embed_resources.py */
 #define HEX(c) RGB(((c) >> 16) & 255, ((c) >> 8) & 255, (c) & 255)
 

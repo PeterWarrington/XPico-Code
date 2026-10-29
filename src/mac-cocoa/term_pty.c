@@ -143,11 +143,6 @@ void term_pty_resize(int id, int cols, int rows)
     ioctl(s_ptys[id].master, TIOCSWINSZ, &ws);
 }
 
-void term_pty_kill(int id)
-{
-    if (term_pty_alive(id) && s_ptys[id].child > 0) kill(s_ptys[id].child, SIGINT);
-}
-
 /* Drain whatever has arrived on every shell. Called once per pass of the event
  * loop, so it must never block -- and must not read one of them forever
  * either: a command that floods its output would keep the editor out of its

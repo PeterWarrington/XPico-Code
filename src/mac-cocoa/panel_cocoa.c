@@ -51,7 +51,6 @@ void term_pty_close(int id);
 void term_pty_close_all(void);
 void term_pty_send(int id, const char *data, int n);
 void term_pty_resize(int id, int cols, int rows);
-void term_pty_kill(int id);
 void term_pty_poll(void);
 const char *term_pty_error(void);
 const char *term_pty_shell_name(void);
@@ -256,10 +255,26 @@ void term_send_line(const char *cmd)
     panel_show_tab(2);
 }
 
+/* Remove the active terminal, as terminal.c does on Windows: the trash button
+ * deletes the instance rather than interrupting what is running in it. An
+ * exited shell has to go too -- that is the only way to clear it off the list.
+ *
+ * term_pty_close does the teardown: SIGHUP, reap, and close the master, which
+ * also frees the pty slot for the next terminal. */
 void term_kill(void)
 {
     Term *t = curterm();
-    if (t && !t->exited) term_pty_kill(t->pty);
+    if (!t) return;
+    term_pty_close(t->pty);
+    free(t->scr);
+    /* Close the gap, so s_terms stays 0..s_nterms-1 with no holes -- term_new
+     * appends at s_terms[s_nterms] and find_term_by_pty scans that range. */
+    memmove(t, t + 1, (size_t)(s_nterms - s_cur - 1) * sizeof *t);
+    s_nterms--;
+    memset(&s_terms[s_nterms], 0, sizeof s_terms[s_nterms]);
+    if (s_cur >= s_nterms) s_cur = s_nterms - 1;
+    out_log("Terminal killed");
+    if (g_hwndPanel) InvalidateRect(g_hwndPanel, NULL, FALSE);
 }
 
 void term_clear(void)

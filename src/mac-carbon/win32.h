@@ -114,6 +114,11 @@ typedef struct { LONG cx, cy; } SIZE, *LPSIZE;
 #define WM_RBUTTONDOWN   0x0204
 #define WM_MBUTTONDOWN   0x0207
 #define WM_MOUSEWHEEL    0x020A
+/* editor.c handles a horizontal wheel, so the constant has to exist for the
+ * shared code to compile. Nothing in this shim posts it: wnd.c only forwards
+ * the vertical axis of kEventMouseWheelMoved, and the mice of the era had no
+ * second axis to forward. */
+#define WM_MOUSEHWHEEL   0x020E
 #define WM_MOUSELEAVE    0x02A3
 #define WM_ACTIVATEAPP   0x001C
 #define WM_DROPFILES     0x0233
