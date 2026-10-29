@@ -128,12 +128,14 @@ int lang_from_path(const char *p)
 {
     const char *e = path_ext(p);
     if (!_stricmp(e, "c") || !_stricmp(e, "h") || !_stricmp(e, "cpp") || !_stricmp(e, "hpp") ||
-        !_stricmp(e, "cc") || !_stricmp(e, "java") || !_stricmp(e, "cs")) return LANG_C;
+        !_stricmp(e, "cc") || !_stricmp(e, "java") || !_stricmp(e, "cs") ||
+        !_stricmp(e, "m") || !_stricmp(e, "mm")) return LANG_C;
     if (!_stricmp(e, "py") || !_stricmp(e, "pyw")) return LANG_PY;
     if (!_stricmp(e, "js") || !_stricmp(e, "json") || !_stricmp(e, "ts")) return LANG_JS;
     if (!_stricmp(e, "bat") || !_stricmp(e, "cmd")) return LANG_BAT;
     if (!_stricmp(e, "ini") || !_stricmp(e, "cfg") || !_stricmp(e, "inf")) return LANG_INI;
-    if (!_stricmp(e, "html") || !_stricmp(e, "htm") || !_stricmp(e, "xml")) return LANG_HTML;
+    if (!_stricmp(e, "html") || !_stricmp(e, "htm") || !_stricmp(e, "xml") ||
+        !_stricmp(e, "plist")) return LANG_HTML;
     if (!_stricmp(e, "md")) return LANG_MD;
 #ifdef MAC_OS
     /* Classic Mac files frequently carry no extension, so ask the Finder type
@@ -303,6 +305,14 @@ static void draw_icon_raw(HDC dc, int icon, int cx, int cy, int sz, COLORREF c, 
 
 void draw_icon(HDC dc, int icon, int cx, int cy, int sz, COLORREF c)
 {
+#ifdef ICONS_ANTIALIASED
+    /* The supersampling below is a way round GDI's hard-edged strokes. Where
+     * the platform antialiases for us there is nothing to work round, and the
+     * detour actively costs: its software blend is quantised to whole pixels,
+     * so on a display with more than one pixel to the point the icons come out
+     * softer than everything drawn beside them. */
+    draw_icon_raw(dc, icon, cx, cy, sz, c, sz >= 24 ? 2 : 1);
+#else
     int box = sz + 2 * IC_PAD, bw = box * IC_SS, left = cx - sz / 2 - IC_PAD, top = cy - sz / 2 - IC_PAD, x, y, i, j;
     HDC bigDC, dstDC; HBITMAP bigBmp, dstBmp, bigOld, dstOld; BITMAPINFO bi; DWORD *big, *dst;
     int cr = GetRValue(c), cg = GetGValue(c), cb = GetBValue(c);
@@ -350,6 +360,7 @@ void draw_icon(HDC dc, int icon, int cx, int cy, int sz, COLORREF c)
 
     DeleteObject(bigBmp); DeleteObject(dstBmp); DeleteDC(bigDC); DeleteDC(dstDC);
     free(big); free(dst);
+#endif
 }
 
 /* small coloured file-type badge, like the Seti icon theme */
@@ -562,7 +573,7 @@ static void make_code_font(void)
     g_fCodeSmall = mkfont("Lucida Console", 11, FW_NORMAL);
     dc = GetDC(NULL); old = (HFONT)SelectObject(dc, g_fCode);
     GetTextMetrics(dc, &tm);
-    g_codeCW = tm.tmAveCharWidth; g_codeCH = tm.tmHeight + 5;
+    g_codeCW = tm.tmAveCharWidth; g_codeCH = tm.tmHeight + CODE_LINE_PAD;
     SelectObject(dc, old); ReleaseDC(NULL, dc);
 }
 
@@ -909,11 +920,10 @@ void app_command(int cmd)
             mb.cbSize = sizeof mb; mb.hwndOwner = g_hwndMain; mb.hInstance = g_hinst;
 #ifdef MAC_OS
             mb.lpszText = APP_NAME " " APP_VERSION "\n\nA Visual Studio Code style editor "
-                          PLATFORM_BLURB ".\n\nNo Chromium, no Electron - just QuickDraw and Carbon.";
+                          PLATFORM_BLURB ".\n\n" ABOUT_TECH;
 #else
-            mb.lpszText = APP_NAME " " APP_VERSION "\n\nA Visual Studio Code style editor in"
-                          PLATFORM_BLURB " under 200kb.\n"
-                          "Small, lightweight, modern, compatible.\n\nCompatible with Windows XP. Compatible with MacOS 9 PPC.";
+            mb.lpszText = APP_NAME " " APP_VERSION "\n\nA Visual Studio Code style editor written "
+                          PLATFORM_BLURB " C.\n" ABOUT_TECH;
 #endif
             mb.lpszCaption = "About " APP_NAME; mb.dwStyle = MB_USERICON; mb.lpszIcon = MAKEINTRESOURCE(IDI_APP);
             MessageBoxIndirect(&mb);
@@ -1175,9 +1185,9 @@ static void locate_settings(void)
 {
     char dir[MAX_PATH];
     if (SUCCEEDED(SHGetFolderPath(NULL, CSIDL_APPDATA, NULL, 0, dir))) {
-        sfmt(s_ini, sizeof s_ini, "%s\\XPico Code", dir);
+        sfmt(s_ini, sizeof s_ini, "%s" PATH_SEPS "XPico Code", dir);
         CreateDirectory(s_ini, NULL);
-        strcat(s_ini, "\\xpcode.ini");
+        strcat(s_ini, PATH_SEPS "xpcode.ini");
     } else sfmt(s_ini, sizeof s_ini, "%sxpcode.ini", g_exeDir);
 }
 

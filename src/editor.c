@@ -312,11 +312,20 @@ static const char *kw_c_ctrl[] = { "if", "else", "for", "while", "do", "switch",
 static const char *kw_c[] = { "struct", "union", "enum", "typedef", "static", "extern", "const", "volatile",
     "register", "sizeof", "inline", "auto", "signed", "unsigned", "void", "char", "short", "int", "long",
     "float", "double", "class", "public", "private", "protected", "new", "delete", "this", "virtual",
-    "namespace", "using", "template", "bool", "true", "false", "NULL", "CALLBACK", "WINAPI", NULL };
+    "namespace", "using", "template", "bool", "true", "false", "NULL", "CALLBACK", "WINAPI",
+    "nil", "Nil", "YES", "NO", NULL };
+/* Objective-C directives are a '@' and a word, and are matched as one token so
+ * that "end" or "class" on their own stay ordinary identifiers in plain C. */
+static const char *kw_objc[] = { "interface", "implementation", "protocol", "end", "property",
+    "synthesize", "dynamic", "selector", "encode", "class", "import", "defs", "public", "private",
+    "protected", "package", "optional", "required", "try", "catch", "finally", "throw",
+    "synchronized", "autoreleasepool", "compatibility_alias", NULL };
 static const char *ty_c[] = { "BOOL", "BYTE", "WORD", "DWORD", "UINT", "LONG", "HWND", "HDC", "HFONT", "HBRUSH",
     "HPEN", "HBITMAP", "HICON", "HMENU", "HANDLE", "HINSTANCE", "LPARAM", "WPARAM", "LRESULT", "RECT", "POINT",
     "SIZE", "MSG", "WNDCLASS", "PAINTSTRUCT", "COLORREF", "TCHAR", "LPSTR", "LPCSTR", "FILE", "size_t",
-    "Doc", "Line", "Pos", "Undo", "Term", "Node", "INT_PTR", "UINT_PTR", "DWORD_PTR", "va_list", NULL };
+    "Doc", "Line", "Pos", "Undo", "Term", "Node", "INT_PTR", "UINT_PTR", "DWORD_PTR", "va_list",
+    "id", "SEL", "IMP", "Class", "instancetype", "NSInteger", "NSUInteger", "CGFloat", "NSString",
+    "NSArray", "NSDictionary", "NSObject", "IBOutlet", "IBAction", NULL };
 static const char *kw_py_ctrl[] = { "if", "elif", "else", "for", "while", "try", "except", "finally", "with",
     "return", "yield", "break", "continue", "pass", "raise", "import", "from", "as", "assert", "await", NULL };
 static const char *kw_py[] = { "def", "class", "lambda", "and", "or", "not", "in", "is", "None", "True", "False",
@@ -462,6 +471,12 @@ static int hl_line(Doc *d, int li, int state, unsigned char *cls)
         if (isdigit(c) || (c == '.' && i + 1 < n && isdigit((unsigned char)s[i + 1]))) {
             j = i; while (j < n && (isalnum((unsigned char)s[j]) || s[j] == '.')) j++;
             MARK(i, j, CL_NUM); i = j; continue;
+        }
+        if (lang == LANG_C && c == '@' && i + 1 < n && is_ident((unsigned char)s[i + 1])) {
+            j = i + 1;
+            while (j < n && is_ident((unsigned char)s[j])) j++;
+            if (in_list(kw_objc, s + i + 1, j - i - 1, 0)) MARK(i, j, CL_KW);
+            i = j; continue;
         }
         if (is_ident(c)) {
             int k, allcaps = 1, len;
@@ -2142,6 +2157,14 @@ static LRESULT CALLBACK EditorProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
             int delta = GET_WHEEL_DELTA_WPARAM(wp) / 40;
             if (GetKeyState(VK_CONTROL) < 0) { app_command(delta > 0 ? CMD_ZOOM_IN : CMD_ZOOM_OUT); return 0; }
             if (GetKeyState(VK_SHIFT) < 0) d->left -= delta * 4; else d->top -= delta;
+            clamp_scroll(d); redraw();
+        }
+        return 0;
+    case WM_MOUSEHWHEEL:
+        /* A tilt wheel, or a sideways swipe on a trackpad. Positive is to the
+         * right, which is the opposite of what the vertical wheel means by it. */
+        if (is_text(d)) {
+            d->left += GET_WHEEL_DELTA_WPARAM(wp) / 40 * 4;
             clamp_scroll(d); redraw();
         }
         return 0;

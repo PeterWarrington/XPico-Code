@@ -30,6 +30,7 @@ struct Win {
     HWND      parent;
     HMENU     menu;
     int       used, visible, dirty;
+    HCURSOR   cursor;          /* the class cursor, for WM_SETCURSOR */
     WindowRef wr;              /* top-level only */
     LPVOID    param;
 };
@@ -184,6 +185,7 @@ HWND CreateWindowEx(DWORD exstyle, LPCSTR cls, LPCSTR name, DWORD style,
     win = alloc_win();
     if (!win) return NULL;
     win->proc = c->proc;
+    win->cursor = c->cursor;
     strncpy(win->cls, cls, sizeof win->cls - 1);
     if (name) { strncpy(win->text, name, sizeof win->text - 1); }
     win->style = style; win->exstyle = exstyle;
@@ -651,6 +653,29 @@ static void dispatch_mouse(UINT msg, Point pt, WPARAM wp)
     SendMessage(target, msg, wp, MAKELONG(pt.h - ox, pt.v - oy));
 }
 
+/* Ask for the cursor the way Win32 does.
+ *
+ * WM_SETCURSOR goes to the window under the pointer -- or to the window with
+ * capture, so that a splitter drag keeps its resize cursor once the pointer
+ * has slid onto a panel. A window that does not claim the message leaves it to
+ * DefWindowProc, which hands it to the parent; the editor claims it for the
+ * I-beam, the main window for the two splitters, and the sidebar and palette
+ * not at all. When nobody claims it, Win32 falls back to the class cursor of
+ * the window under the pointer.
+ *
+ * Nothing here sent this message at all, so the app was never asked and the
+ * cursor never changed: no I-beam over the text, and no resize cursor on the
+ * splitters. */
+static void apply_cursor(HWND under)
+{
+    HWND target = s_capture ? s_capture : under;
+    HWND p;
+    if (!target) return;
+    for (p = target; p; p = p->parent)
+        if (SendMessage(p, WM_SETCURSOR, (WPARAM)target, MAKELONG(HTCLIENT, 0))) return;
+    SetCursor(target->cursor ? target->cursor : LoadCursor(NULL, IDC_ARROW));
+}
+
 /* Classic Mac OS has no mouse-moved event: you poll. Without this the app
  * never saw WM_MOUSEMOVE at all, so nothing that tracks the pointer worked --
  * dragging either scrollbar, dragging the splitters or the minimap, selecting
@@ -687,6 +712,7 @@ static void poll_mouse(void)
     win_origin(target, &ox, &oy);
     SendMessage(target, WM_MOUSEMOVE, Button() ? MK_LBUTTON : 0,
                 MAKELONG(pt.h - ox, pt.v - oy));
+    apply_cursor(s_mouseIn);
 }
 
 BOOL GetMessage(LPMSG m, HWND w, UINT lo, UINT hi)
