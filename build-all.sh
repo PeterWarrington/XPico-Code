@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build every XPico Code release artifact, for every platform, into build/dist.
 #
-#   ./build-all.sh                  all three targets
+#   ./build-all.sh                  all three targets (four platforms)
 #   ./build-all.sh cocoa win32      just those
 #
 # Environment:
@@ -21,9 +21,14 @@
 #            ships as a StuffIt archive.
 #            -> XPicoCode-v<version>-ppc-macos9.sit
 #
-#   win32    Windows XP, via tools/build_win32.py, inside the XP VM -- the
-#            only machine that can run Tiny C Compiler and msilib.
+#   win32    Windows, via tools/build_win32.py, inside the XP VM -- the only
+#            machine that can run Tiny C Compiler and msilib. Builds twice:
+#            once for Windows 2000 and up, and once with WIN95 defined, which
+#            gates away every call Windows 95 does not export (see the
+#            Windows 95 section at the foot of src/xpcode.h). The installer is
+#            for the first of those only; Windows 95 gets the standalone .exe.
 #            -> XPicoCode-v<version>-x86-win32.exe and .msi
+#            -> XPicoCode-v<version>-x86-win95.exe
 #
 # Two of the three need a VM, and the slow one is emulated PowerPC, so a full
 # run is minutes rather than seconds. A target that cannot build does not stop

@@ -8,10 +8,10 @@ networking exposes to the guest as 10.0.2.2 -- the only channel in or out,
 since the VM forwards nothing but telnet and the SPICE WebDAV share is only
 served while UTM has the VM window open with a folder picked.
 
-So: fetch the sources from the host, run build.bat and then build_msi.py, and
-PUT the .exe and the .msi back. Nothing is read from the checkout the guest
-already has in C:\\dev\\xpcode -- the point is to build exactly what is on the
-host right now.
+So: fetch the sources from the host, run build.bat twice -- once for Windows
+2000 and up, once for Windows 95 -- then build_msi.py, and PUT the two .exes
+and the .msi back. Nothing is read from the checkout the guest already has in
+C:\\dev\\xpcode -- the point is to build exactly what is on the host right now.
 
 Python 3.4 is the newest Python for Windows XP, so no f-strings, no pathlib,
 and no subprocess.run.
@@ -77,18 +77,24 @@ def main(argv):
     os.remove(archive)
 
     # cmd /c, because build.bat is a batch file and CreateProcess will not run
-    # one directly.
+    # one directly. The installer is for the Windows 2000 and up build only;
+    # Windows 95 gets the standalone .exe.
     run(['cmd', '/c', 'build.bat'], WORK)
     run([sys.executable, os.path.join('installer', 'build_msi.py')], WORK)
+    run(['cmd', '/c', 'build.bat', 'win95'], WORK)
 
     exe = os.path.join(WORK, 'build', 'xpico-code.exe')
+    exe95 = os.path.join(WORK, 'build', 'xpico-code-win95.exe')
     msis = glob.glob(os.path.join(WORK, 'dist', '*.msi'))
     if not os.path.exists(exe):
         raise SystemExit('build.bat produced no xpico-code.exe')
+    if not os.path.exists(exe95):
+        raise SystemExit('build.bat win95 produced no xpico-code-win95.exe')
     if not msis:
         raise SystemExit('build_msi.py produced no .msi')
 
     put(base, 'artifacts/xpico-code.exe', exe)
+    put(base, 'artifacts/xpico-code-win95.exe', exe95)
     put(base, 'artifacts/' + os.path.basename(msis[0]), msis[0])
     return 0
 

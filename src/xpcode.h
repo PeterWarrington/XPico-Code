@@ -90,12 +90,52 @@
 #define LINE_ENDING_NAME "CRLF"
 #define BUILD_SCRIPT  "build.bat"
 #define BUILD_COMMAND "cd /d \"%s\" && call build.bat"
-#define TERMINAL_BLURB "A real cmd.exe, right inside the editor."
 #define RUN_BLURB "F5 compiles C with TCC, runs Python and batch."
 #define RUN_RECIPES win_run_recipes
-#define ABOUT_TECH "Small, lightweight, modern, compatible.\n\nBuilt with Tiny C Compiler on Windows XP."
 /* The gap added to the code font's height to get the editor's line pitch. */
 #define CODE_LINE_PAD 5
+
+/* ---- Windows 95 ---------------------------------------------------------
+ * One Windows source, two Windows builds. Without WIN95 the editor calls the
+ * API directly and wants Windows 2000 or higher; "build.bat win95" defines
+ * WIN95, which sends every call Windows 95 does not export through a
+ * fallback that it does, and drives command.com instead of cmd.exe.
+ *
+ * The gating deliberately does not lower WINVER. What decides whether the
+ * program loads on Windows 95 is which names end up in the import table and
+ * nothing else; an older WINVER would additionally hide types the shared code
+ * still uses (JOBOBJECT_*, CLEARTYPE_QUALITY) and buy nothing for it. The
+ * fallbacks are in src/win95.c, which only the Windows 95 build compiles. */
+#ifdef WIN95
+#define FONT_QUALITY   DEFAULT_QUALITY           /* ClearType is Windows XP's */
+#define BROWSE_FLAGS   BIF_RETURNONLYFSDIRS      /* BIF_NEWDIALOGSTYLE is shell32 5.0 */
+#define SHELL_NAME     "command.com"
+#define TERMINAL_BLURB "One command at a time, right inside the editor."
+/* OPENFILENAME grew three fields in Windows 2000, and the common dialogs
+ * before that reject a size they do not recognise rather than ignoring the
+ * tail, so GetOpenFileName simply fails. Ask for the old structure. */
+#ifndef OPENFILENAME_SIZE_VERSION_400
+#define OPENFILENAME_SIZE_VERSION_400 76   /* through lpTemplateName */
+#endif
+#define OFN_STRUCT_SIZE OPENFILENAME_SIZE_VERSION_400
+#define ABOUT_TECH "Small, lightweight, modern, compatible.\n\nBuilt with Tiny C Compiler for Windows 95."
+/* src/win95.c -- the same ends by means Windows 95 has. */
+void w95_init_common_controls(void);
+int  w95_appdata(char *out, int n);
+int  w95_file_mtime(const char *path, FILETIME *ft);
+const char *w95_pick_font(const char *const *names);
+void w95_track_leave(HWND w);
+int  w95_wheel(MSG *m);
+void w95_oem_to_ansi(char *buf, int n);
+#define TRACK_MOUSE_LEAVE(w) w95_track_leave(w)
+#else
+#define FONT_QUALITY   CLEARTYPE_QUALITY
+#define BROWSE_FLAGS   (BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE)
+#define SHELL_NAME     "cmd.exe"
+#define TERMINAL_BLURB "A real cmd.exe, right inside the editor."
+#define OFN_STRUCT_SIZE sizeof(OPENFILENAME)
+#define ABOUT_TECH "Small, lightweight, modern, compatible.\n\nBuilt with Tiny C Compiler on Windows XP."
+#endif
 #endif
 #include <stdio.h>
 #include <stdlib.h>
@@ -118,6 +158,15 @@
 #define PATH_SEP   '\\'
 #define PATH_SEPS  "\\"
 #define IS_PATH_SEP(c) ((c) == '\\' || (c) == '/')
+#endif
+
+/* Ask for one WM_MOUSELEAVE for this window. Windows 95 has no
+ * TrackMouseEvent, and defines this over a watcher of its own instead. */
+#ifndef TRACK_MOUSE_LEAVE
+#define TRACK_MOUSE_LEAVE(w) do { \
+        TRACKMOUSEEVENT tme_; tme_.cbSize = sizeof tme_; tme_.dwFlags = TME_LEAVE; \
+        tme_.hwndTrack = (w); tme_.dwHoverTime = 0; TrackMouseEvent(&tme_); \
+    } while (0)
 #endif
 
 #define APP_NAME "XPico Code"

@@ -1,6 +1,6 @@
 ---
-title: XPico Code - A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9, OSX, and higher.
-description: A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9, OSX, and higher.
+title: XPico Code - A VS Code-style editor in under 200kb. Compatible with Windows 95 and higher. Compatible with MacOS 9, OSX, and higher.
+description: A VS Code-style editor in under 200kb. Compatible with Windows 95 and higher. Compatible with MacOS 9, OSX, and higher.
 ---
 <p align="center">
   <img src="icon.png" width="96" height="96" alt="XPico Code icon">
@@ -9,7 +9,7 @@ description: A VS Code-style editor in under 200kb. Compatible with Windows XP. 
 <h1 align="center">XPico Code</h1>
 
 <p align="center">
-  A VS Code-style editor in under 200kb. <br> Compatible with Windows XP. Compatible with MacOS 9, OSX, and higher.<br>
+  A VS Code-style editor in under 200kb. <br> Compatible with Windows 95 and higher. Compatible with MacOS 9, OSX, and higher.<br>
   Small, lightweight, modern, compatible.
 </p>
 
@@ -20,7 +20,8 @@ description: A VS Code-style editor in under 200kb. Compatible with Windows XP. 
       <span class="platform">Windows</span>
       <a class="button" href="http://lilpete.me/xpcode/XPicoCode-v1.2.0-x86-win32.msi">Installer .msi</a>
       <a class="button" href="http://lilpete.me/xpcode/XPicoCode-v1.2.0-x86-win32.exe">Standalone .exe</a>
-      <span class="note">32-bit, 2000 and up</span>
+      <a class="button" href="http://lilpete.me/xpcode/XPicoCode-v1.2.0-x86-win95.exe">Windows 95 .exe</a>
+      <span class="note">32-bit &middot; 2000 and up, or 95/98/Me</span>
     </td>
     <td>
       <span class="platform">Mac OS 9</span>
@@ -55,7 +56,10 @@ description: A VS Code-style editor in under 200kb. Compatible with Windows XP. 
 
 - **Integrated terminal** – a real `cmd.exe` in the bottom panel, with multiple terminals, command
   history, Tab completion of file names, Ctrl+C to interrupt the running program, mouse selection,
-  copy/paste, and scrollback. Killing a terminal also kills every process it started.
+  copy/paste, and scrollback. Killing a terminal also kills every process it started. On Windows
+  95, 98 and Me, where `COMSPEC` is a 16-bit `command.com` whose output Windows will not put into
+  a pipe, it runs one command at a time from a generated batch file instead – everything above the
+  process is the same, but there is no standard input and Ctrl+C ends the command.
 - **Problems panel** – compiler errors printed in the terminal (`file:line: error: …` from TCC/GCC,
   `file(line) : error …` from MSVC, Python tracebacks) are collected into the Problems panel and the
   status bar; click one, or Ctrl+click the line in the terminal, to jump to it.

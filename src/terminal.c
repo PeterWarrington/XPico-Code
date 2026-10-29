@@ -1,6 +1,10 @@
 /* terminal.c - the bottom panel: PROBLEMS, OUTPUT and the integrated TERMINAL.
  * Each terminal is a real cmd.exe connected through anonymous pipes, with a hidden
- * console of its own so Ctrl+C can be delivered, all inside a Job Object. */
+ * console of its own so Ctrl+C can be delivered, all inside a Job Object.
+ *
+ * None of which Windows 95 has: the WIN95 build runs one command at a time
+ * instead, out of a batch file, and everything above the process is shared.
+ * See the comment over the Windows 95 half of the "processes" section. */
 #include "xpcode.h"
 
 #define HEADER_H   35
@@ -21,6 +25,12 @@ typedef struct Term {
     char cwd[MAX_PATH];
     int selA[2], selB[2], hasSel;
     int tabCycle; char tabBase[256];
+#ifdef WIN95
+    /* the batch file one command is run from, the file its output is
+     * collected in, the line itself, and whether it is still going */
+    char batPath[MAX_PATH], outPath[MAX_PATH], lastCmd[1100];
+    int running;
+#endif
 } Term;
 
 typedef struct { char file[MAX_PATH]; int line, col, sev; char msg[300]; } Problem;
@@ -234,6 +244,8 @@ static void term_put(Term *t, const char *d, int n)
 
 /* =========================================================== processes */
 
+#ifndef WIN95
+
 typedef BOOL (WINAPI *AttachConsoleFn)(DWORD);
 
 /* Job Object functions are looked up at runtime: TCC's stock kernel32.def predates them. */
@@ -337,6 +349,269 @@ static void term_ctrl_c(Term *t)
     }
 }
 
+#else   /* ---------------------------------------------------- WIN95 ---- */
+
+/* One command at a time, with no shell held open.
+ *
+ * Every piece of the design above is missing on Windows 95. COMSPEC there is
+ * command.com, a 16-bit MS-DOS program, and Windows 95 will not redirect a
+ * DOS program's standard output into an anonymous pipe -- CreateProcess
+ * succeeds and the pipe then stays empty for good. Nor is there an
+ * AttachConsole to deliver Ctrl+C through, or a Job Object to put the
+ * children in.
+ *
+ * It will redirect that output into a *file*, though, so that is what this
+ * does. The terminal keeps its screen, scrollback, history, tab completion
+ * and prompt, and runs one command at a time rather than talking to a shell
+ * that stays running: each submitted line is written to a batch file,
+ * command.com is started on it with one inheritable file handle as both its
+ * standard output and its standard error, and a thread tails that file into
+ * the same chunk stream the pipe fed on NT. Everything downstream -- the
+ * screen, the scrollback, the problem matcher -- is the shared code.
+ *
+ * What is lost is standard input, and with it interactive programs, and
+ * Ctrl+C as a signal rather than a kill. */
+
+static void submit(Term *t);
+static void input_set(Term *t, const char *s);
+
+/* Print the prompt. The rest of terminal.c reads the working directory off
+ * the screen (is_prompt), so printing one is also how it is published. */
+static void w95_prompt(Term *t)
+{
+    if (last_line(t)->len) term_put(t, "\r\n", 2);
+    term_put(t, t->cwd, (int)strlen(t->cwd));
+    term_put(t, ">", 1);
+}
+
+/* Move the terminal's idea of the working directory, canonicalising ".." and
+ * a relative or drive-relative path the way the shell would have. */
+static void w95_cd(Term *t, const char *target)
+{
+    char joined[MAX_PATH * 2], full[MAX_PATH]; int n;
+    if (!target[0]) return;
+    if (target[1] == ':' && IS_PATH_SEP(target[2])) sfmt(joined, sizeof joined, "%s", target);
+    else if (target[1] == ':') sfmt(joined, sizeof joined, "%c:\\%s", target[0], target + 2);
+    else if (IS_PATH_SEP(target[0])) sfmt(joined, sizeof joined, "%.2s%s", t->cwd, target);
+    else sfmt(joined, sizeof joined, "%s\\%s", t->cwd, target);
+    if (!GetFullPathName(joined, MAX_PATH, full, NULL)) return;
+    n = (int)strlen(full);
+    while (n > 3 && IS_PATH_SEP(full[n - 1])) full[--n] = 0;
+    if (dir_exists(full)) sfmt(t->cwd, MAX_PATH, "%s", full);
+}
+
+/* Follow a finished line to wherever it left the working directory. Asking
+ * command.com is no good -- its own "cd" prints the 8.3 path in capitals --
+ * so every cd and drive change on the line is replayed here instead. */
+static void w95_apply_cd(Term *t, const char *line)
+{
+    const char *p = line;
+    while (*p) {
+        const char *amp = strstr(p, "&&");
+        char seg[1100], *s = seg; int len = amp ? (int)(amp - p) : (int)strlen(p), q;
+        if (len > (int)sizeof seg - 1) len = (int)sizeof seg - 1;
+        memcpy(seg, p, len); seg[len] = 0;
+        while (*s == ' ') s++;
+        q = (int)strlen(s); while (q && s[q - 1] == ' ') s[--q] = 0;
+        if (!_strnicmp(s, "cd ", 3) || !_strnicmp(s, "chdir ", 6)) {
+            char *a = s + (s[1] == 'd' ? 3 : 6);
+            while (*a == ' ') a++;
+            if (!_strnicmp(a, "/d ", 3)) { a += 3; while (*a == ' ') a++; }
+            q = (int)strlen(a); while (q && (a[q - 1] == '"' || a[q - 1] == ' ')) a[--q] = 0;
+            if (*a == '"') a++;
+            w95_cd(t, a);
+        } else if (isalpha((unsigned char)s[0]) && s[1] == ':' && !s[2]) {
+            char root[4]; sfmt(root, sizeof root, "%c:\\", s[0]);
+            if (dir_exists(root)) sfmt(t->cwd, MAX_PATH, "%s", root);
+        }
+        if (!amp) break;
+        p = amp + 2;
+    }
+}
+
+/* A command line DOS can run. Quotes are stripped from the program's own path
+ * -- command.com does not do it, and would look for a file whose name begins
+ * with one -- and a path with a space in it becomes its 8.3 name, which is
+ * the only form that can then be given unquoted. Arguments are left exactly
+ * as typed: those reach a Win32 program's argv, which does strip quotes. */
+static const char *w95_dos_command(Term *t, const char *s)
+{
+    static char out[1300];
+    char name[MAX_PATH], full[MAX_PATH], shrt[MAX_PATH]; const char *rest; int k = 0;
+    if (*s != '"') return s;
+    for (s++; *s && *s != '"' && k < MAX_PATH - 1; ) name[k++] = *s++;
+    name[k] = 0;
+    rest = *s == '"' ? s + 1 : s;
+    if (!strchr(name, ' ')) { sfmt(out, sizeof out, "%s%s", name, rest); return out; }
+    if (name[1] == ':' || IS_PATH_SEP(name[0])) sfmt(full, sizeof full, "%s", name);
+    else sfmt(full, sizeof full, "%s\\%s", t->cwd, name);
+    if (GetShortPathName(full, shrt, MAX_PATH)) sfmt(out, sizeof out, "%s%s", shrt, rest);
+    else sfmt(out, sizeof out, "\"%s\"%s", name, rest);
+    return out;
+}
+
+/* Write the batch file for one submitted line.
+ *
+ * "cd /d X:\dir && a && b" is cmd.exe's, and command.com has none of it: no
+ * /d, no &&. So the chain becomes one command per line with an errorlevel
+ * test between them, and "cd /d" becomes the drive letter on a line of its
+ * own followed by a plain cd. The run recipes in main.c are therefore shared
+ * with the Windows 2000 build unchanged. */
+static void w95_write_batch(Term *t, const char *line)
+{
+    HANDLE h = CreateFile(t->batPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+    char buf[4096]; int n = 0; const char *p = line; DWORD wr;
+    if (h == INVALID_HANDLE_VALUE) return;
+    n += sfmt(buf + n, sizeof buf - n, "@echo off\r\n");
+    if (t->cwd[1] == ':') n += sfmt(buf + n, sizeof buf - n, "%c:\r\ncd %s\r\n", t->cwd[0], t->cwd);
+    while (*p) {
+        const char *amp = strstr(p, "&&");
+        char seg[1100], *s = seg; int len = amp ? (int)(amp - p) : (int)strlen(p), q;
+        if (len > (int)sizeof seg - 1) len = (int)sizeof seg - 1;
+        memcpy(seg, p, len); seg[len] = 0;
+        while (*s == ' ') s++;
+        q = (int)strlen(s); while (q && s[q - 1] == ' ') s[--q] = 0;
+        if (*s) {
+            if (!_strnicmp(s, "cd /d ", 6)) {
+                char *a = s + 6, *e;
+                while (*a == ' ' || *a == '"') a++;
+                e = a + strlen(a); while (e > a && (e[-1] == '"' || e[-1] == ' ')) *--e = 0;
+                if (a[1] == ':') n += sfmt(buf + n, sizeof buf - n, "%c:\r\n", a[0]);
+                n += sfmt(buf + n, sizeof buf - n, "cd %s\r\n", a);
+            } else n += sfmt(buf + n, sizeof buf - n, "%s\r\n", w95_dos_command(t, s));
+            if (amp) n += sfmt(buf + n, sizeof buf - n, "if errorlevel 1 goto xpcend\r\n");
+        }
+        if (!amp) break;
+        p = amp + 2;
+    }
+    n += sfmt(buf + n, sizeof buf - n, ":xpcend\r\n");
+    WriteFile(h, buf, n, &wr, NULL);
+    CloseHandle(h);
+}
+
+/* Tail the output file into the chunk stream the pipe fed on NT. The file is
+ * opened and closed around each read rather than held open, so the DOS box
+ * writing to it never has to share it with a reader. */
+static DWORD WINAPI w95_tail_thread(LPVOID p)
+{
+    Term *t = (Term *)p; DWORD off = 0; int done = 0;
+    while (!done) {
+        HANDLE h;
+        done = WaitForSingleObject(t->hProc, 60) == WAIT_OBJECT_0;
+        h = CreateFile(t->outPath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                       NULL, OPEN_EXISTING, 0, NULL);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        SetFilePointer(h, (LONG)off, NULL, FILE_BEGIN);
+        {
+            char buf[4096]; DWORD n;
+            while (ReadFile(h, buf, sizeof buf, &n, NULL) && n) {
+                TermChunk *c = (TermChunk *)malloc(sizeof(TermChunk) + n);
+                c->n = (int)n; memcpy(c->data, buf, n);
+                w95_oem_to_ansi(c->data, (int)n);   /* command.com writes code page 437 */
+                PostMessage(g_hwndPanel, WM_APP_TERMDATA, (WPARAM)t, (LPARAM)c);
+                off += n;
+            }
+        }
+        CloseHandle(h);
+    }
+    PostMessage(g_hwndPanel, WM_APP_TERMEXIT, (WPARAM)t, 0);
+    return 0;
+}
+
+static int w95_run(Term *t, const char *line)
+{
+    char cmd[MAX_PATH * 2], comspec[MAX_PATH], shell[MAX_PATH];
+    SECURITY_ATTRIBUTES sa; STARTUPINFO si; PROCESS_INFORMATION pi; DWORD tid;
+    HANDLE hOut, hNul;
+    sfmt(t->lastCmd, sizeof t->lastCmd, "%s", line);
+    w95_write_batch(t, line);
+    sa.nLength = sizeof sa; sa.lpSecurityDescriptor = NULL; sa.bInheritHandle = TRUE;
+    /* One handle for both streams, so they interleave in the order they were
+     * written exactly as they did down the pipe. Standard input is NUL rather
+     * than the hidden console, so a program that reads it sees end of file
+     * instead of waiting on a terminal that is not there. */
+    hOut = CreateFile(t->outPath, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                      &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hOut == INVALID_HANDLE_VALUE) return 0;
+    hNul = CreateFile("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                      &sa, OPEN_EXISTING, 0, NULL);
+    if (!GetEnvironmentVariable("ComSpec", comspec, sizeof comspec)) strcpy(comspec, SHELL_NAME);
+    if (!GetShortPathName(comspec, shell, MAX_PATH)) strcpy(shell, comspec);
+    sfmt(cmd, sizeof cmd, "%s /c %s", shell, t->batPath);
+    memset(&si, 0, sizeof si); si.cb = sizeof si;
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    si.hStdInput = hNul; si.hStdOutput = hOut; si.hStdError = hOut;
+    if (!CreateProcess(NULL, cmd, NULL, NULL, TRUE, 0, NULL, t->cwd, &si, &pi)) {
+        CloseHandle(hOut);
+        if (hNul != INVALID_HANDLE_VALUE) CloseHandle(hNul);
+        return 0;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(hOut);                                  /* the child holds its own */
+    if (hNul != INVALID_HANDLE_VALUE) CloseHandle(hNul);
+    t->hProc = pi.hProcess; t->pid = pi.dwProcessId; t->running = 1;
+    t->hThread = CreateThread(NULL, 0, w95_tail_thread, t, 0, &tid);
+    return 1;
+}
+
+/* The command finished -- not the terminal. */
+static void w95_done(Term *t)
+{
+    DWORD code = 0;
+    if (!t->running) return;
+    if (t->hProc) { GetExitCodeProcess(t->hProc, &code); CloseHandle(t->hProc); t->hProc = NULL; }
+    if (t->hThread) { CloseHandle(t->hThread); t->hThread = NULL; }
+    t->running = 0; t->exitCode = (int)code; t->pid = 0;
+    DeleteFile(t->batPath);
+    DeleteFile(t->outPath);
+    w95_apply_cd(t, t->lastCmd);
+    w95_prompt(t);
+    t->follow = 1;
+}
+
+static int term_start(Term *t, const char *cwd)
+{
+    char tmp[MAX_PATH], shrt[MAX_PATH]; static char here[MAX_PATH];
+    if (!cwd || !dir_exists(cwd)) cwd = GetCurrentDirectory(MAX_PATH, here) ? here : "C:\\";
+    sfmt(t->cwd, MAX_PATH, "%s", cwd);
+    /* The batch file's path is handed to command.com, which cannot be given a
+     * quoted one and does not understand a long one, so the temporary
+     * directory is taken in its 8.3 form; both names below already are. */
+    if (!GetTempPath(MAX_PATH, tmp)) strcpy(tmp, "C:\\");
+    if (!GetShortPathName(tmp, shrt, MAX_PATH)) strcpy(shrt, tmp);
+    if (shrt[0] && !IS_PATH_SEP(shrt[strlen(shrt) - 1])) strcat(shrt, "\\");
+    sfmt(t->batPath, MAX_PATH, "%sxpc%dr.bat", shrt, t->number);
+    sfmt(t->outPath, MAX_PATH, "%sxpc%do.txt", shrt, t->number);
+    t->alive = 1; t->follow = 1; t->pid = 0; t->running = 0;
+    w95_prompt(t);
+    return 1;
+}
+
+static void term_stop(Term *t)
+{
+    if (t->hProc) {
+        TerminateProcess(t->hProc, 1);
+        /* the tail thread reads *t, so it has to be gone before the caller
+         * frees the terminal */
+        if (t->hThread) WaitForSingleObject(t->hThread, 2000);
+        CloseHandle(t->hProc); t->hProc = NULL;
+    }
+    if (t->hThread) { CloseHandle(t->hThread); t->hThread = NULL; }
+    DeleteFile(t->batPath);
+    DeleteFile(t->outPath);
+    t->running = 0; t->alive = 0;
+}
+
+static void term_ctrl_c(Term *t)
+{
+    /* No console of its own means no CTRL_C_EVENT to send, so Ctrl+C ends the
+     * command rather than interrupting it. */
+    if (t->running && t->hProc) { term_put(t, "^C\r\n", 4); TerminateProcess(t->hProc, 1); }
+}
+
+#endif  /* WIN95 */
+
 void term_new(const char *cwd)
 {
     Term *t;
@@ -345,12 +620,17 @@ void term_new(const char *cwd)
     t->number = ++s_termCounter;
     new_line(t);
     if (!term_start(t, cwd)) {
-        put_char(t, '!'); term_put(t, " Could not start cmd.exe", 24);
+        const char *e = " Could not start " SHELL_NAME;
+        put_char(t, '!'); term_put(t, e, (int)strlen(e));
     }
     s_terms[s_nterms++] = t;
     s_cur = s_nterms - 1;
     s_tab = 2;
-    out_log("Started terminal %d (cmd.exe, pid %lu) in %s", t->number, t->pid, cwd ? cwd : "current directory");
+#ifdef WIN95
+    out_log("Started terminal %d in %s", t->number, cwd ? cwd : "current directory");
+#else
+    out_log("Started terminal %d (" SHELL_NAME ", pid %lu) in %s", t->number, t->pid, cwd ? cwd : "current directory");
+#endif
     if (g_hwndPanel) { InvalidateRect(g_hwndPanel, NULL, FALSE); if (IsWindowVisible(g_hwndPanel)) SetFocus(g_hwndPanel); }
 }
 
@@ -391,8 +671,13 @@ void term_send_line(const char *cmd)
     if (!t || !t->alive) { term_new(g_root[0] ? g_root : NULL); t = curterm(); }
     if (!t) return;
     problems_clear();
+#ifdef WIN95
+    input_set(t, cmd);                  /* which runs it, and echoes it */
+    submit(t);
+#else
     term_write(t, cmd, (int)strlen(cmd));
     term_write(t, "\r\n", 2);
+#endif
     t->follow = 1;
     s_tab = 2;
     InvalidateRect(g_hwndPanel, NULL, FALSE);
@@ -652,6 +937,11 @@ static void submit(Term *t)
         if (term_start(t, t->cwd[0] ? t->cwd : g_root)) out_log("Restarted terminal %d", t->number);
         return;
     }
+#ifdef WIN95
+    /* One command at a time: there is no shell on the other end waiting to
+     * take a second line, and nothing to hand a running program on stdin. */
+    if (t->running) { out_log("Terminal %d is still running a command", t->number); return; }
+#endif
     memcpy(line, t->input, t->inlen); line[t->inlen] = 0;
     if (t->inlen) {
         if (!t->nhist || strcmp(t->hist[t->nhist - 1], line)) {
@@ -660,6 +950,20 @@ static void submit(Term *t)
         }
     }
     t->histpos = t->nhist;
+#ifdef WIN95
+    if (atPrompt) problems_clear();
+    term_put(t, line, t->inlen);          /* command.com is not there to echo it */
+    term_put(t, "\r\n", 2);
+    t->inlen = t->incur = 0; t->follow = 1; t->hasSel = 0;
+    if (!_stricmp(line, "cls")) { term_clear_lines(t); w95_prompt(t); return; }
+    if (!_stricmp(line, "exit")) { t->alive = 0; t->exitCode = 0; out_log("Terminal %d closed", t->number); return; }
+    if (!line[0]) { w95_prompt(t); return; }
+    if (!w95_run(t, line)) {
+        const char *e = "Could not start " SHELL_NAME;
+        term_put(t, e, (int)strlen(e));
+        w95_prompt(t);
+    }
+#else
     if (atPrompt) problems_clear();
     else { term_put(t, line, t->inlen); term_put(t, "\r\n", 2); }   /* programs don't echo stdin */
     if (!_stricmp(line, "cls")) term_clear_lines(t);
@@ -667,6 +971,7 @@ static void submit(Term *t)
     term_write(t, line, t->inlen);
     term_write(t, "\r\n", 2);
     t->inlen = t->incur = 0; t->follow = 1; t->hasSel = 0;
+#endif
 }
 
 static void tab_complete(Term *t)
@@ -811,12 +1116,17 @@ static LRESULT CALLBACK PanelProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
     case WM_APP_TERMEXIT: {
         Term *src = (Term *)wp; int i;
         for (i = 0; i < s_nterms; i++) if (s_terms[i] == src && src->alive) {
+#ifdef WIN95
+            w95_done(src);              /* the command ended, not the terminal */
+            InvalidateRect(w, NULL, FALSE);
+#else
             DWORD code = 0;
             if (src->hProc) GetExitCodeProcess(src->hProc, &code);
             src->exitCode = (int)code;
             term_stop(src);
             out_log("Terminal %d exited with code %d", src->number, src->exitCode);
             InvalidateRect(w, NULL, FALSE);
+#endif
         }
         return 0;
     }
@@ -870,7 +1180,7 @@ static LRESULT CALLBACK PanelProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_MOUSEMOVE: {
-        int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp), hb = -1, hr = -1; POINT pt; RECT rc; TRACKMOUSEEVENT tm;
+        int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp), hb = -1, hr = -1; POINT pt; RECT rc;
         pt.x = x; pt.y = y; GetClientRect(w, &rc);
         if (s_selecting && t) {
             int line, col; term_hit(t, x, y, &line, &col);
@@ -885,7 +1195,7 @@ static LRESULT CALLBACK PanelProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
         if (s_tab == 2 && s_nterms > 1 && x >= rc.right - LIST_W && y >= HEADER_H) hr = (y - HEADER_H) / 22;
         if (s_tab == 0 && y > HEADER_H) hr = s_probScroll + (y - HEADER_H - 2) / 22;
         if (hb != s_hoverBtn || hr != s_hoverRow) { s_hoverBtn = hb; s_hoverRow = hr; InvalidateRect(w, NULL, FALSE); }
-        tm.cbSize = sizeof tm; tm.dwFlags = TME_LEAVE; tm.hwndTrack = w; tm.dwHoverTime = 0; TrackMouseEvent(&tm);
+        TRACK_MOUSE_LEAVE(w);
         return 0;
     }
     case WM_MOUSELEAVE: s_hoverBtn = s_hoverRow = -1; InvalidateRect(w, NULL, FALSE); return 0;

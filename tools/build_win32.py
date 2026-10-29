@@ -1,4 +1,4 @@
-"""Build the Windows XP release -- the .exe and the .msi -- in the UTM VM.
+"""Build the Windows release -- both .exes and the .msi -- in the UTM VM.
 
     python3 tools/build_win32.py
 
@@ -325,6 +325,7 @@ def main():
     # The release names, which is the only thing the host renames.
     wanted = {
         'xpico-code.exe': 'XPicoCode-v%s-x86-win32.exe' % version,
+        'xpico-code-win95.exe': 'XPicoCode-v%s-x86-win95.exe' % version,
         'XPicoCode-%s.msi' % version: 'XPicoCode-v%s-x86-win32.msi' % version,
     }
     written = []

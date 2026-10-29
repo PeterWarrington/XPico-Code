@@ -216,10 +216,16 @@ static void doc_set_text(Doc *d, const char *t, int n)
 
 static int get_mtime(const char *path, FILETIME *ft)
 {
+#ifdef WIN95
+    /* GetFileAttributesEx is Windows 98 and NT 4; FindFirstFile is as old as
+     * Win32 and reports the same write time. */
+    return w95_file_mtime(path, ft);
+#else
     WIN32_FILE_ATTRIBUTE_DATA a;
     if (!GetFileAttributesEx(path, GetFileExInfoStandard, &a)) return 0;
     *ft = a.ftLastWriteTime;
     return 1;
+#endif
 }
 
 /* =========================================================== undo */
@@ -1369,7 +1375,7 @@ int editor_save(int idx, int saveas)
     if (!d->path[0] || saveas) {
         OPENFILENAME of; memset(&of, 0, sizeof of);
         if (d->path[0]) strcpy(path, d->path); else sfmt(path, sizeof path, "Untitled-%d.txt", d->untitled);
-        of.lStructSize = sizeof of; of.hwndOwner = g_hwndMain;
+        of.lStructSize = OFN_STRUCT_SIZE; of.hwndOwner = g_hwndMain;
         of.lpstrFilter = "All Files (*.*)\0*.*\0C Source (*.c)\0*.c\0Python (*.py)\0*.py\0Batch (*.bat)\0*.bat\0";
         of.lpstrFile = path; of.nMaxFile = MAX_PATH; of.lpstrInitialDir = g_root[0] ? g_root : NULL;
         of.Flags = OFN_OVERWRITEPROMPT | OFN_EXPLORER;
@@ -2115,7 +2121,7 @@ static LRESULT CALLBACK EditorProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_MOUSEMOVE: {
-        int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp), i, ht = -1, hc = -1, hl = -1; POINT pt; TRACKMOUSEEVENT t;
+        int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp), i, ht = -1, hc = -1, hl = -1; POINT pt;
         pt.x = x; pt.y = y;
         if (s_selecting && is_text(d)) {
             Pos p = hit_pos(d, x, y);
@@ -2131,7 +2137,7 @@ static LRESULT CALLBACK EditorProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
         if (ht != s_hoverTab || hc != s_hoverClose || hl != s_hoverLink) {
             s_hoverTab = ht; s_hoverClose = hc; s_hoverLink = hl; InvalidateRect(w, NULL, FALSE);
         }
-        t.cbSize = sizeof t; t.dwFlags = TME_LEAVE; t.hwndTrack = w; t.dwHoverTime = 0; TrackMouseEvent(&t);
+        TRACK_MOUSE_LEAVE(w);
         return 0;
     }
     case WM_SETCURSOR:

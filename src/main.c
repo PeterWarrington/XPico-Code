@@ -422,10 +422,10 @@ static LRESULT CALLBACK ActivityProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_MOUSEMOVE: {
-        RECT rc; int h; TRACKMOUSEEVENT t;
+        RECT rc; int h;
         GetClientRect(w, &rc); h = activity_hit(GET_Y_LPARAM(lp), rc.bottom);
         if (h != s_actHover) { s_actHover = h; InvalidateRect(w, NULL, FALSE); }
-        t.cbSize = sizeof t; t.dwFlags = TME_LEAVE; t.hwndTrack = w; t.dwHoverTime = 0; TrackMouseEvent(&t);
+        TRACK_MOUSE_LEAVE(w);
         return 0;
     }
     case WM_MOUSELEAVE: s_actHover = -1; InvalidateRect(w, NULL, FALSE); return 0;
@@ -528,11 +528,11 @@ static LRESULT CALLBACK StatusProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_MOUSEMOVE: {
-        int i, h = -1; POINT p; TRACKMOUSEEVENT t;
+        int i, h = -1; POINT p;
         p.x = GET_X_LPARAM(lp); p.y = GET_Y_LPARAM(lp);
         for (i = 0; i < s_nitems; i++) if (PtInRect(&s_items[i].r, p) && s_items[i].cmd) h = i;
         if (h != s_statusHover) { s_statusHover = h; InvalidateRect(w, NULL, FALSE); }
-        t.cbSize = sizeof t; t.dwFlags = TME_LEAVE; t.hwndTrack = w; t.dwHoverTime = 0; TrackMouseEvent(&t);
+        TRACK_MOUSE_LEAVE(w);
         return 0;
     }
     case WM_MOUSELEAVE: s_statusHover = -1; InvalidateRect(w, NULL, FALSE); return 0;
@@ -560,17 +560,51 @@ void status_refresh(void) { if (g_hwndStatus) InvalidateRect(g_hwndStatus, NULL,
 
 static HFONT mkfont(const char *face, int h, int weight)
 {
+#ifdef WIN95
+    /* OUT_TT_PRECIS would refuse a raster face, and the last resort below is
+     * one; ClearType is Windows XP's and GDI there has no quality 5. */
+    return CreateFont(-h, 0, 0, 0, weight, 0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                      FONT_QUALITY, FIXED_PITCH | FF_DONTCARE, face);
+#else
     return CreateFont(-h, 0, 0, 0, weight, 0, 0, 0, ANSI_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
-                      CLEARTYPE_QUALITY, FIXED_PITCH | FF_DONTCARE, face);
+                      FONT_QUALITY, FIXED_PITCH | FF_DONTCARE, face);
+#endif
 }
+
+/* Which face to ask for. Windows 2000 and up have all three, so the name is
+ * just the name; Windows 95 shipped none of them -- Tahoma and Trebuchet MS
+ * arrived with Internet Explorer 4, which most machines then got -- so the
+ * build for it takes the best face actually installed, with a face from the
+ * original Windows 95 at the end of each list as the one that cannot miss. */
+#ifdef WIN95
+static const char *ui_face(void)
+{
+    static const char *const names[] = { "Tahoma", "MS Sans Serif", NULL };
+    return w95_pick_font(names);
+}
+static const char *title_face(void)
+{
+    static const char *const names[] = { "Trebuchet MS", "Arial", "MS Sans Serif", NULL };
+    return w95_pick_font(names);
+}
+static const char *code_face(void)
+{
+    static const char *const names[] = { "Lucida Console", "Courier New", "FixedSys", NULL };
+    return w95_pick_font(names);
+}
+#else
+static const char *ui_face(void)    { return "Tahoma"; }
+static const char *title_face(void) { return "Trebuchet MS"; }
+static const char *code_face(void)  { return "Lucida Console"; }
+#endif
 
 static void make_code_font(void)
 {
-    HDC dc; TEXTMETRIC tm; HFONT old;
+    HDC dc; TEXTMETRIC tm; HFONT old; const char *face = code_face();
     if (g_fCode) DeleteObject(g_fCode);
     if (g_fCodeSmall) DeleteObject(g_fCodeSmall);
-    g_fCode = mkfont("Lucida Console", g_codeSize, FW_NORMAL);
-    g_fCodeSmall = mkfont("Lucida Console", 11, FW_NORMAL);
+    g_fCode = mkfont(face, g_codeSize, FW_NORMAL);
+    g_fCodeSmall = mkfont(face, 11, FW_NORMAL);
     dc = GetDC(NULL); old = (HFONT)SelectObject(dc, g_fCode);
     GetTextMetrics(dc, &tm);
     g_codeCW = tm.tmAveCharWidth; g_codeCH = tm.tmHeight + CODE_LINE_PAD;
@@ -579,11 +613,12 @@ static void make_code_font(void)
 
 static void make_fonts(void)
 {
-    g_fUI = CreateFont(-12, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, "Tahoma");
-    g_fUIBold = CreateFont(-11, 0, 0, 0, FW_BOLD, 0, 0, 0, ANSI_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, "Tahoma");
-    g_fUISmall = CreateFont(-11, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, "Tahoma");
-    g_fTitle = CreateFont(-46, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, "Trebuchet MS");
-    g_fHeading = CreateFont(-19, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, "Trebuchet MS");
+    const char *ui = ui_face(), *title = title_face();
+    g_fUI = CreateFont(-12, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET, 0, 0, FONT_QUALITY, 0, ui);
+    g_fUIBold = CreateFont(-11, 0, 0, 0, FW_BOLD, 0, 0, 0, ANSI_CHARSET, 0, 0, FONT_QUALITY, 0, ui);
+    g_fUISmall = CreateFont(-11, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET, 0, 0, FONT_QUALITY, 0, ui);
+    g_fTitle = CreateFont(-46, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET, 0, 0, FONT_QUALITY, 0, title);
+    g_fHeading = CreateFont(-19, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET, 0, 0, FONT_QUALITY, 0, title);
     make_code_font();
 }
 
@@ -737,7 +772,7 @@ static void open_folder_dialog(void)
     BROWSEINFO bi; LPITEMIDLIST pidl; char path[MAX_PATH];
     memset(&bi, 0, sizeof bi);
     bi.hwndOwner = g_hwndMain; bi.lpszTitle = "Open Folder";
-    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE; bi.lpfn = browse_cb;
+    bi.ulFlags = BROWSE_FLAGS; bi.lpfn = browse_cb;
     pidl = SHBrowseForFolder(&bi);
     if (pidl && SHGetPathFromIDList(pidl, path)) app_open_folder(path);
     if (pidl) CoTaskMemFree(pidl);
@@ -747,7 +782,7 @@ static void open_file_dialog(void)
 {
     OPENFILENAME of; char buf[MAX_PATH * 8];
     memset(&of, 0, sizeof of); buf[0] = 0;
-    of.lStructSize = sizeof of; of.hwndOwner = g_hwndMain;
+    of.lStructSize = OFN_STRUCT_SIZE; of.hwndOwner = g_hwndMain;
     of.lpstrFilter = "All Files (*.*)\0*.*\0C/C++ Files\0*.c;*.h;*.cpp\0Python\0*.py\0Batch\0*.bat;*.cmd\0";
     of.lpstrFile = buf; of.nMaxFile = sizeof buf; of.lpstrInitialDir = g_root[0] ? g_root : NULL;
     of.Flags = OFN_FILEMUSTEXIST | OFN_EXPLORER | OFN_ALLOWMULTISELECT;
@@ -804,8 +839,10 @@ static void run_active_file(int buildOnly)
     if (!_stricmp(e, "c")) {
         char exe[MAX_PATH]; strcpy(exe, path_name(p)); exe[strlen(exe) - 2] = 0;
         if (buildOnly) sfmt(cmd, sizeof cmd, "cd /d \"%s\" && tcc \"%s\" -o \"%s.exe\"", dir, path_name(p), exe);
+#ifndef WIN95
         else if (source_is_gui(i))   /* start detaches it; run straight from the terminal's cmd, a GUI program stalls at startup until the stdin pipe sees input */
             sfmt(cmd, sizeof cmd, "cd /d \"%s\" && tcc \"%s\" -o \"%s.exe\" && start \"\" \"%s.exe\"", dir, path_name(p), exe, exe);
+#endif
         else sfmt(cmd, sizeof cmd, "cd /d \"%s\" && tcc \"%s\" -o \"%s.exe\" && \"%s.exe\"", dir, path_name(p), exe, exe);
     } else if (!_stricmp(e, "py")) sfmt(cmd, sizeof cmd, "cd /d \"%s\" && python -u \"%s\"", dir, path_name(p));
     else if (!_stricmp(e, "bat") || !_stricmp(e, "cmd")) sfmt(cmd, sizeof cmd, "cd /d \"%s\" && call \"%s\"", dir, path_name(p));
@@ -937,6 +974,9 @@ void app_command(int cmd)
 int app_hotkey(MSG *m)
 {
     int ctrl, shift, alt, vk;
+#ifdef WIN95
+    if (w95_wheel(m)) return 1;
+#endif
     if (m->message != WM_KEYDOWN && m->message != WM_SYSKEYDOWN) return 0;
     ctrl = GetKeyState(VK_CONTROL) < 0; shift = GetKeyState(VK_SHIFT) < 0; alt = GetKeyState(VK_MENU) < 0;
     vk = (int)m->wParam;
@@ -1184,7 +1224,11 @@ static void add_tools_to_path(void)
 static void locate_settings(void)
 {
     char dir[MAX_PATH];
+#ifdef WIN95
+    if (w95_appdata(dir, MAX_PATH)) {
+#else
     if (SUCCEEDED(SHGetFolderPath(NULL, CSIDL_APPDATA, NULL, 0, dir))) {
+#endif
         sfmt(s_ini, sizeof s_ini, "%s" PATH_SEPS "XPico Code", dir);
         CreateDirectory(s_ini, NULL);
         strcat(s_ini, PATH_SEPS "xpcode.ini");
@@ -1193,9 +1237,16 @@ static void locate_settings(void)
 
 int WINAPI WinMain(HINSTANCE hi, HINSTANCE prev, LPSTR cmdline, int show)
 {
-    WNDCLASS wc; MSG msg; INITCOMMONCONTROLSEX icc; char arg[MAX_PATH]; int x, y, cw, ch, mx;
+    WNDCLASS wc; MSG msg; char arg[MAX_PATH]; int x, y, cw, ch, mx;
+#ifndef WIN95
+    INITCOMMONCONTROLSEX icc;
+#endif
     g_hinst = hi;
+#ifdef WIN95
+    w95_init_common_controls();
+#else
     icc.dwSize = sizeof icc; icc.dwICC = ICC_WIN95_CLASSES; InitCommonControlsEx(&icc);
+#endif
     CoInitialize(NULL);
     GetModuleFileName(NULL, g_exeDir, MAX_PATH); *(char *)path_name(g_exeDir) = 0;
     locate_settings();

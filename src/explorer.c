@@ -729,13 +729,13 @@ static LRESULT CALLBACK SidebarProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
         return 0;
     case WM_MOUSEMOVE: {
         if (s_dragBar) { sidebar_scroll_to(GET_Y_LPARAM(lp)); return 0; }
-        int y = GET_Y_LPARAM(lp), h = row_at(y), ha = -1, k; POINT pt; TRACKMOUSEEVENT t;
+        int y = GET_Y_LPARAM(lp), h = row_at(y), ha = -1, k; POINT pt;
         pt.x = GET_X_LPARAM(lp); pt.y = y;
         if (g_sideView == 0 && !g_root[0] && PtInRect(&s_openBtn, pt)) h = -2;
         if (g_sideView == 2) h = PtInRect(&s_runBtn, pt) ? -3 : PtInRect(&s_buildBtn, pt) ? -4 : -1;
         for (k = 0; k < 4; k++) if (PtInRect(&s_actRc[k], pt)) ha = k;
         if (h != s_hover || !s_hoverActions || ha != s_actHover) { s_hover = h; s_hoverActions = 1; s_actHover = ha; InvalidateRect(w, NULL, FALSE); }
-        t.cbSize = sizeof t; t.dwFlags = TME_LEAVE; t.hwndTrack = w; t.dwHoverTime = 0; TrackMouseEvent(&t);
+        TRACK_MOUSE_LEAVE(w);
         return 0;
     }
     case WM_LBUTTONUP:
