@@ -1,5 +1,5 @@
 title: XPico Code
-description: A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9 PPC.
+description: A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9, OSX, and higher.
 url: https://code.lilpete.me
 author: Peter Warrington
 markdown: kramdown

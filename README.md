@@ -5,16 +5,27 @@
 <h1 align="center">XPico Code</h1>
 
 <p align="center">
-  A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9 PPC.<br>
+  A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9, OSX, and higher.<br>
   Small, lightweight, modern, compatible.
 </p>
 
 <p align="center">
-  <a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.1.0/XPicoCode-1.1.0.msi">Download installer .msi</a>
+  <b>Windows 2000 and higher</b><br/>
+  <a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.2.0/XPicoCode-v1.2.0-x86-win32.msi">Download installer .msi</a>
   <br/>
-  <a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.1.0/XPicoCode-1.1.0.exe">Download standalone .exe</a>
-  <br/>
-  <a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.1.1/XPicoCode-1.1.1.sit">Download for MacOS 9 PPC!</a>
+  <a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.2.0/XPicoCode-v1.2.0-x86-win32.exe">Download standalone .exe</a>
+</p>
+
+<p align="center">
+  <b>Mac OS 9 (PowerPC)</b><br/>
+  <a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.2.0/XPicoCode-v1.2.0-ppc-macos9.sit">Download .sit</a>
+</p>
+
+<p align="center">
+  <b>Mac OS X</b><br/>
+  <a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.2.0/XPicoCode-v1.2.0-arm64-osx.zip">Apple Silicon (arm64)</a> &middot;
+  <a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.2.0/XPicoCode-v1.2.0-x86_64-osx.zip">Intel (x86_64)</a> &middot;
+  <a href="https://github.com/PeterWarrington/XP-Code/releases/download/1.2.0/XPicoCode-v1.2.0-ppc-osx.zip">PowerPC (10.4 Tiger)</a>
 </p>
 
 <p align="center">
@@ -50,18 +61,25 @@
 
 ## Install
 
-Download `XPicoCode-1.0.0.msi` from the releases page and run it. The installer puts XPico Code in
+Download `XPicoCode-v1.2.0-x86-win32.msi` from the releases page and run it. The installer puts XPico Code in
 `Program Files\XPico Code`, adds a Start Menu shortcut and an optional desktop shortcut, and registers
 in Add or Remove Programs. Installing a newer version upgrades the old one in place.
 
 Silent install and removal work the usual Windows Installer way:
 
 ```
-msiexec /i XPicoCode-1.0.0.msi /qn
-msiexec /x XPicoCode-1.0.0.msi /qn
+msiexec /i XPicoCode-v1.2.0-x86-win32.msi /qn
+msiexec /x XPicoCode-v1.2.0-x86-win32.msi /qn
 ```
 
 Tested on Windows XP Professional (32-bit).
+
+On Mac OS 9, download the `.sit` and expand it with StuffIt Expander, which every 9.x system has.
+It is a StuffIt archive rather than a zip because the application only works as a file with its
+resource fork intact, and a zip drops it.
+
+On Mac OS X, download the `.zip` for your machine -- `arm64` for Apple Silicon, `x86_64` for Intel,
+`ppc` for a 10.4 Tiger PowerPC -- and drag `XPicoCode.app` out of it.
 
 ## Author's note
 

@@ -1,6 +1,6 @@
 ---
-title: XPico Code - A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9 PPC.
-description: A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9 PPC.
+title: XPico Code - A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9, OSX, and higher.
+description: A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9, OSX, and higher.
 ---
 <p align="center">
   <img src="icon.png" width="96" height="96" alt="XPico Code icon">
@@ -9,17 +9,35 @@ description: A VS Code-style editor in under 200kb. Compatible with Windows XP. 
 <h1 align="center">XPico Code</h1>
 
 <p align="center">
-  A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9 PPC.<br>
+  A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9, OSX, and higher.<br>
   Small, lightweight, modern, compatible.
 </p>
 
+<table class="downloads">
+  <caption>Version 1.2.0</caption>
+  <tr>
+    <td>
+      <span class="platform">Windows</span>
+      <a class="button" href="http://lilpete.me/xpcode/XPicoCode-v1.2.0-x86-win32.msi">Installer .msi</a>
+      <a class="button" href="http://lilpete.me/xpcode/XPicoCode-v1.2.0-x86-win32.exe">Standalone .exe</a>
+      <span class="note">32-bit, 2000 and up</span>
+    </td>
+    <td>
+      <span class="platform">Mac OS 9</span>
+      <a class="button" href="http://lilpete.me/xpcode/XPicoCode-v1.2.0-ppc-macos9.sit">PowerPC .sit</a>
+      <span class="note">Expand with StuffIt</span>
+    </td>
+    <td>
+      <span class="platform">Mac OS X</span>
+      <a class="button" href="http://lilpete.me/xpcode/XPicoCode-v1.2.0-arm64-osx.zip">Apple Silicon .zip</a>
+      <a class="button" href="http://lilpete.me/xpcode/XPicoCode-v1.2.0-x86_64-osx.zip">Intel .zip</a>
+      <a class="button" href="http://lilpete.me/xpcode/XPicoCode-v1.2.0-ppc-osx.zip">PowerPC .zip</a>
+      <span class="note">arm64 &middot; x86_64 &middot; 10.4 Tiger</span>
+    </td>
+  </tr>
+</table>
+
 <p align="center">
-  <a class="button" href="http://lilpete.me/xpcode/XPicoCode-1.1.0.msi">Download installer .msi</a>
-    <br/>
-  <a class="button" href="http://lilpete.me/xpcode/XPicoCode-1.1.0.exe">Download standalone .exe</a>
-    <br/>
-  <a class="button" href="http://lilpete.me/xpcode/XPicoCode-1.1.1.sit">Download for MacOS 9 PPC!</a>
-    <br/>
   <a class="button" href="http://github.com/PeterWarrington/XPico-Code">See GitHub Repo</a>
 </p>
 

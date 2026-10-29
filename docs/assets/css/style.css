@@ -34,6 +34,67 @@ body {
 }
 .window-body a.button:hover { box-shadow: inset 0 0 0 2px #fcb83a; }
 .window-body a.button:active { background: #d6d0c0; }
+
+/* Downloads: one column per platform, on a translucent panel so the window's
+   beige shows through it. Each heading lives inside its own cell rather than
+   in a header row, so the columns stack into labelled blocks on a narrow
+   screen instead of separating the headings from their buttons.
+   The solid colour is declared first for IE, which ignores rgba and keeps
+   the fallback -- same trick as the gradient on h2 above. */
+.window-body table.downloads {
+  width: 100%;
+  margin: 14px 0 6px;
+  border-collapse: separate;
+  border-spacing: 5px;
+  table-layout: fixed;
+}
+.window-body table.downloads caption {
+  padding-bottom: 6px;
+  font-size: 12px;
+  text-align: center;
+  color: #4a4a42;
+}
+.window-body table.downloads td {
+  padding: 8px;
+  vertical-align: top;
+  text-align: center;
+  background: #f5f3ec;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid #aca899;
+}
+.window-body table.downloads .platform {
+  display: block;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  font-size: 13px;
+  font-weight: bold;
+  color: #0a246a;
+  border-bottom: 1px solid #c3bfae;
+}
+/* The buttons are 220px wide on their own; in a column they take the cell. */
+.window-body table.downloads a.button {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 4px 0;
+}
+.window-body table.downloads .note {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #5a5a50;
+}
+
+@media (max-width: 600px) {
+  .window-body table.downloads,
+  .window-body table.downloads tbody,
+  .window-body table.downloads tr,
+  .window-body table.downloads td {
+    display: block;
+    width: auto;
+  }
+  .window-body table.downloads td { margin-bottom: 5px; }
+}
 .screenshot { text-align: center; padding: 3px; }
 .screenshot img { border: 2px inset #fff; }
 p {
