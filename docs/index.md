@@ -1,6 +1,6 @@
 ---
-title: XPico Code - A VS Code-style editor for Windows XP
-description: A VS Code-style editor in under 200kb and compatible with Windows XP. No Electron, no Chromium - all Win32 C, built with Tiny C Compiler.
+title: XPico Code - A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9 PPC.
+description: A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9 PPC.
 ---
 <p align="center">
   <img src="icon.png" width="96" height="96" alt="XPico Code icon">
@@ -9,16 +9,18 @@ description: A VS Code-style editor in under 200kb and compatible with Windows X
 <h1 align="center">XPico Code</h1>
 
 <p align="center">
-  A VS Code-style editor in under 200kb and compatible with Windows XP.<br>
-  Small, and all Win32.
+  A VS Code-style editor in under 200kb. Compatible with Windows XP. Compatible with MacOS 9 PPC.<br>
+  Small, lightweight, modern, compatible.
 </p>
 
 <p align="center">
-<a class="button" href="http://lilpete.me/xpcode/XPicoCode-1.1.0.msi">Download installer .msi</a>
-  <br/>
-<a class="button" href="http://lilpete.me/xpcode/XPicoCode-1.1.0.exe">Download standalone .exe</a>
-  <br/>
-<a class="button" href="http://github.com/PeterWarrington/XPico-Code">See GitHub Repo</a>
+  <a class="button" href="http://lilpete.me/xpcode/XPicoCode-1.1.0.msi">Download installer .msi</a>
+    <br/>
+  <a class="button" href="http://lilpete.me/xpcode/XPicoCode-1.1.0.exe">Download standalone .exe</a>
+    <br/>
+  <a class="button" href="http://lilpete.me/xpcode/XPicoCode-1.1.1.sit">Download for MacOS 9 PPC!</a>
+    <br/>
+  <a class="button" href="http://github.com/PeterWarrington/XPico-Code">See GitHub Repo</a>
 </p>
 
 <p align="center">

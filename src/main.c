@@ -911,9 +911,9 @@ void app_command(int cmd)
             mb.lpszText = APP_NAME " " APP_VERSION "\n\nA Visual Studio Code style editor "
                           PLATFORM_BLURB ".\n\nNo Chromium, no Electron - just QuickDraw and Carbon.";
 #else
-            mb.lpszText = APP_NAME " " APP_VERSION "\n\nA Visual Studio Code style editor written "
-                          PLATFORM_BLURB " C.\n"
-                          "No Chromium, no Electron - just GDI, USER32 and cmd.exe.\n\nBuilt with Tiny C Compiler on Windows XP.";
+            mb.lpszText = APP_NAME " " APP_VERSION "\n\nA Visual Studio Code style editor in"
+                          PLATFORM_BLURB " under 200kb.\n"
+                          "Small, lightweight, modern, compatible.\n\nCompatible with Windows XP. Compatible with MacOS 9 PPC.";
 #endif
             mb.lpszCaption = "About " APP_NAME; mb.dwStyle = MB_USERICON; mb.lpszIcon = MAKEINTRESOURCE(IDI_APP);
             MessageBoxIndirect(&mb);
