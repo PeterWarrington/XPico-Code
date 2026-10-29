@@ -101,7 +101,10 @@ static void refilter(void)
     while (*q == '>' || *q == ':' || *q == ' ') q++;
     if (s_mode == M_CMDS) {
         for (i = 0; s_cmds[i].name; i++) {
-            int sc = fuzzy_score(q, s_cmds[i].name);
+            int sc;
+            /* nothing that needs a shell when there is not one */
+            if (!TERMINAL_AVAILABLE() && cmd_needs_terminal(s_cmds[i].cmd)) continue;
+            sc = fuzzy_score(q, s_cmds[i].name);
             if (sc >= 0) push_item(i, *q ? sc : 1000 - i);
         }
     } else if (s_mode == M_FILES) {
@@ -197,7 +200,7 @@ static void pal_accept(void)
         app_command(cmd);
     } else {
         char full[MAX_PATH];
-        sfmt(full, sizeof full, "%s\\%s", g_root, s_files[s_items[s_sel].idx]);
+        sfmt(full, sizeof full, "%s" PATH_SEPS "%s", g_root, s_files[s_items[s_sel].idx]);
         palette_close();
         editor_open(full);
         editor_focus();

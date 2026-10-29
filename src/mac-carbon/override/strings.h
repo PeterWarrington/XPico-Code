@@ -8,7 +8,7 @@
  * "Line" struct against QuickDraw's Line(), for instance.
  *
  * The app code only needs the Win32 shim, never the Toolbox, so this file
- * shadows the symlink when src/mac/override is first on the include path.
+ * shadows the symlink when src/mac-carbon/override is first on the include path.
  * It is used ONLY for the app sources: the shim's own files (mac/*.c) include
  * <Carbon.h> on purpose and are compiled without this directory. */
 #ifndef XPCODE_OVERRIDE_STRINGS_H

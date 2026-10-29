@@ -25,13 +25,14 @@ struct Doc {
     Undo *u; int nu, capu, upos, savepos, group, lastKind; DWORD lastEdit;
     FILETIME mtime;
     unsigned char *st; int stcap, stvalid;
+    int maxvx, maxvxValid;          /* widest line in visual columns, cached */
 };
 
 static Doc *s_docs[MAXDOCS];
 static int s_n, s_act = -1, s_untitledNo;
 static RECT s_tabRc[MAXDOCS], s_tabClose[MAXDOCS];
 static int s_tabScroll, s_hoverTab = -1, s_hoverClose = -1;
-static int s_selecting, s_dragScroll, s_dragMini, s_dragOffset;
+static int s_selecting, s_dragScroll, s_dragMini, s_dragOffset, s_dragHScroll;
 static int s_lineCopy; static char *s_lineCopyText;
 typedef struct { RECT r; int cmd; } Link;
 static Link s_links[24]; static int s_nlinks, s_hoverLink = -1;
@@ -89,7 +90,12 @@ static void doc_remove_lines(Doc *d, int at, int count)
     d->n -= count;
 }
 
-static void doc_dirty_from(Doc *d, int line) { if (d->stvalid > line) d->stvalid = line; if (d->stvalid < 0) d->stvalid = 0; }
+static void doc_dirty_from(Doc *d, int line)
+{
+    if (d->stvalid > line) d->stvalid = line;
+    if (d->stvalid < 0) d->stvalid = 0;
+    d->maxvxValid = 0;              /* the longest line may have changed */
+}
 
 static void line_insert(Line *l, int col, const char *t, int n)
 {
@@ -509,6 +515,54 @@ static int text_right(void) { int w, h; client_size(&w, &h); return w - SB_W - (
 static int vis_lines(void) { int w, h; client_size(&w, &h); h -= text_top(); return h > 0 ? h / g_codeCH : 1; }
 static int vis_cols(Doc *d) { int c = (text_right() - gutter_w(d)) / g_codeCW; return c > 1 ? c : 1; }
 
+static int col_to_vx(Line *l, int col);
+
+/* The widest line in the document, in visual columns. Recomputed only after an
+ * edit: paint runs on every caret blink, and rescanning the whole document each
+ * time would be far too costly on the machines this targets. */
+static int doc_max_vx(Doc *d)
+{
+    int i, max = 0;
+    if (d->maxvxValid) return d->maxvx;
+    for (i = 0; i < d->n; i++) {
+        int vx = col_to_vx(&d->ln[i], d->ln[i].len);
+        if (vx > max) max = vx;
+    }
+    d->maxvx = max;
+    d->maxvxValid = 1;
+    return max;
+}
+
+/* Non-zero when the text is wider than the view, so the bar is only there when
+ * it can actually do something. */
+static int hbar_needed(Doc *d) { return doc_max_vx(d) > vis_cols(d); }
+
+/* The track the thumb slides along: gutter to the vertical bar, along the
+ * bottom of the text area. It overlays the last text row rather than taking
+ * height from it, which keeps vis_lines() out of a feedback loop with its own
+ * visibility. */
+static void hbar_rect(Doc *d, RECT *r)
+{
+    int w, h;
+    client_size(&w, &h);
+    SetRect(r, gutter_w(d), h - SB_W, text_right(), h);
+}
+
+static void hbar_thumb(Doc *d, int *x, int *width)
+{
+    RECT tr;
+    int track, maxvx = doc_max_vx(d), vis = vis_cols(d), span;
+    hbar_rect(d, &tr);
+    track = tr.right - tr.left;
+    if (track < 1) track = 1;
+    *width = maxvx > 0 ? track * vis / maxvx : track;
+    if (*width < 24) *width = 24;
+    if (*width > track) *width = track;
+    span = maxvx - vis;                 /* columns of travel available */
+    if (span < 1) span = 1;
+    *x = tr.left + (track - *width) * d->left / span;
+}
+
 static int col_to_vx(Line *l, int col)
 {
     int i, vx = 0;
@@ -545,6 +599,13 @@ static void clamp_scroll(Doc *d)
     if (d->top > d->n - 1) d->top = d->n - 1;
     if (d->top < 0) d->top = 0;
     if (d->left < 0) d->left = 0;
+    /* Stop horizontal scrolling past the longest line, or the thumb would run
+     * off the end of its track. */
+    if (d->kind == 0) {
+        int span = doc_max_vx(d) - vis_cols(d);
+        if (span < 0) span = 0;
+        if (d->left > span) d->left = span;
+    }
 }
 
 static void ensure_visible(Doc *d)
@@ -962,9 +1023,13 @@ static void copy_text(const char *t, int n)
 {
     HGLOBAL h; char *p; int i, k = 0, extra = 0;
     for (i = 0; i < n; i++) if (t[i] == '\n') extra++;
-    h = GlobalAlloc(GMEM_MOVEABLE, n + extra + 1);
+    h = GlobalAlloc(GMEM_MOVEABLE, n + extra * (LINE_ENDING_LEN - 1) + 1);
     p = (char *)GlobalLock(h);
-    for (i = 0; i < n; i++) { if (t[i] == '\n') p[k++] = '\r'; p[k++] = t[i]; }
+    /* the scrap/clipboard carries the host's line ending, not the buffer's LF */
+    for (i = 0; i < n; i++) {
+        if (t[i] == '\n') { memcpy(p + k, LINE_ENDING, LINE_ENDING_LEN); k += LINE_ENDING_LEN; }
+        else p[k++] = t[i];
+    }
     p[k] = 0;
     GlobalUnlock(h);
     if (OpenClipboard(g_hwndEditor)) { EmptyClipboard(); SetClipboardData(CF_TEXT, h); CloseClipboard(); }
@@ -999,8 +1064,20 @@ static void do_paste(Doc *d)
         t = (char *)malloc(n + 1); memcpy(t, p, n + 1);
         GlobalUnlock(h);
         CloseClipboard();
-        {   /* strip CR */
-            int i, k = 0; for (i = 0; i < n; i++) if (t[i] != '\r') t[k++] = t[i]; t[k] = 0; n = k;
+        {   /* Normalise to LF rather than dropping CRs: text copied from a
+             * classic Mac application is CR-terminated, and simply removing
+             * those would paste the whole thing as a single line. */
+            int r = 0, k = 0;
+            while (r < n) {
+                if (t[r] == '\r') {
+                    t[k++] = '\n';
+                    r++;
+                    if (r < n && t[r] == '\n') r++;
+                } else {
+                    t[k++] = t[r++];
+                }
+            }
+            t[k] = 0; n = k;
         }
         if (!has_sel(d) && s_lineCopy && s_lineCopyText && !strcmp(t, s_lineCopyText)) {
             Pos s = { d->caret.line, 0 };
@@ -1262,7 +1339,7 @@ static int write_doc(Doc *d, const char *path)
     if (h == INVALID_HANDLE_VALUE) return 0;
     for (i = 0; i < d->n && ok; i++) {
         if (d->ln[i].len) ok = WriteFile(h, d->ln[i].s, d->ln[i].len, &wr, NULL);
-        if (i < d->n - 1) ok = ok && WriteFile(h, "\r\n", 2, &wr, NULL);
+        if (i < d->n - 1) ok = ok && WriteFile(h, LINE_ENDING, LINE_ENDING_LEN, &wr, NULL);
     }
     CloseHandle(h);
     return ok;
@@ -1531,21 +1608,23 @@ static void paint_welcome(HDC dc, int x0, int y0, int w, int h)
         { "Run Build Task", CMD_BUILD_TASK }, { "New Terminal", CMD_NEW_TERMINAL } };
     static const struct { const char *title, *desc, *key; int cmd; } cards[] = {
         { "Command Palette", "Find and run every command in XPico Code.", "Ctrl+Shift+P", CMD_PALETTE },
-        { "Integrated Terminal", "A real cmd.exe, right inside the editor.", "Ctrl+`", CMD_FOCUS_TERMINAL },
+        { "Integrated Terminal", TERMINAL_BLURB, "Ctrl+`", CMD_FOCUS_TERMINAL },
         { "Quick Open", "Jump to any file in the folder by name.", "Ctrl+P", CMD_QUICK_OPEN },
-        { "Run and Build", "F5 compiles C with TCC, runs Python and batch.", "F5", CMD_RUN_FILE },
+        { "Run and Build", RUN_BLURB, "F5", CMD_RUN_FILE },
         { "Keyboard Shortcuts", "Learn the keys that make you fast.", "", CMD_SHORTCUTS } };
     s_nlinks = 0;
     fill(dc, x0, y0, w, h, C_EDITOR_BG);
     text_at(dc, lx, y, "XPico Code", -1, HEX(0xCCCCCC), g_fTitle);
     y += 58;
-    text_at(dc, lx, y, "A code editor in plain Win32", -1, HEX(0x9D9D9D), g_fHeading);
+    text_at(dc, lx, y, "A code editor " PLATFORM_BLURB, -1, HEX(0x9D9D9D), g_fHeading);
     y += 60;
     text_at(dc, lx, y, "Start", -1, HEX(0xCCCCCC), g_fHeading);
     y += 34;
     for (i = 0; i < 5; i++) {
         Link *k = &s_links[s_nlinks];
-        int tw = text_w(dc, g_fUI, start[i].label, -1);
+        int tw;
+        if (!TERMINAL_AVAILABLE() && cmd_needs_terminal(start[i].cmd)) continue;
+        tw = text_w(dc, g_fUI, start[i].label, -1);
         SetRect(&k->r, lx, y, lx + 22 + tw, y + 20); k->cmd = start[i].cmd;
         draw_icon(dc, i == 0 ? ICON_NEW_FILE : i == 1 ? ICON_FILES : i == 2 ? ICON_NEW_FOLDER : i == 3 ? ICON_PLAY : ICON_TERMINAL,
                   lx + 7, y + 9, 14, C_LINK);
@@ -1564,6 +1643,7 @@ static void paint_welcome(HDC dc, int x0, int y0, int w, int h)
     y += 34;
     for (i = 0; i < 5; i++) {
         Link *k = &s_links[s_nlinks]; int cw = w / 2 - 80; if (cw > 460) cw = 460;
+        if (!TERMINAL_AVAILABLE() && cmd_needs_terminal(cards[i].cmd)) continue;
         SetRect(&k->r, rx, y, rx + cw, y + 58); k->cmd = cards[i].cmd;
         fill_rc(dc, &k->r, s_hoverLink == s_nlinks ? HEX(0x2D2D30) : HEX(0x252526));
         if (s_hoverLink == s_nlinks) frame(dc, k->r.left, k->r.top, cw, 58, C_ACCENT);
@@ -1586,6 +1666,8 @@ static void paint_watermark(HDC dc, int w, int h)
     static const struct { const char *k, *v; } rows[] = {
         { "Show All Commands", "Ctrl+Shift+P" }, { "Go to File", "Ctrl+P" }, { "Find in Files", "Ctrl+Shift+F" },
         { "Toggle Terminal", "Ctrl+`" }, { "Run Active File", "F5" } };
+    static const int rowCmd[] = { CMD_PALETTE, CMD_QUICK_OPEN, CMD_SHOW_SEARCH,
+                                  CMD_FOCUS_TERMINAL, CMD_RUN_FILE };
     int i, cx = w / 2, y = h / 2 - 150;
     HPEN pen = CreatePen(PS_SOLID, 22, HEX(0x2B2B2B)), op;
     fill(dc, 0, 0, w, h, C_EDITOR_BG);
@@ -1595,6 +1677,7 @@ static void paint_watermark(HDC dc, int w, int h)
     SelectObject(dc, op); DeleteObject(pen);
     y += 170;
     for (i = 0; i < 5; i++) {
+        if (!TERMINAL_AVAILABLE() && cmd_needs_terminal(rowCmd[i])) continue;
         text_at(dc, cx - 10 - text_w(dc, g_fUI, rows[i].k, -1), y, rows[i].k, -1, HEX(0x6E6E6E), g_fUI);
         text_at(dc, cx + 10, y, rows[i].v, -1, HEX(0x6E6E6E), g_fUI);
         y += 24;
@@ -1763,6 +1846,14 @@ static void paint_text(HDC dc, Doc *d, int w, int h)
         /* overview ruler: caret line */
         fill(dc, sx + 1, y0 + th * d->caret.line / (d->n > 1 ? d->n : 1), SB_W - 1, 2, HEX(0xA0A0A0));
     }
+    if (hbar_needed(d)) {
+        RECT tr; int tx, tw;
+        hbar_rect(d, &tr);
+        hbar_thumb(d, &tx, &tw);
+        fill_rc(dc, &tr, C_EDITOR_BG);
+        hline(dc, tr.left, tr.top, tr.right - tr.left, HEX(0x2B2B2B));
+        fill(dc, tx, tr.top + 1, tw, SB_W - 1, s_dragHScroll ? HEX(0x5F5F5F) : HEX(0x424242));
+    }
 }
 
 static void editor_paint(HWND w)
@@ -1803,6 +1894,21 @@ static Pos hit_pos(Doc *d, int x, int y)
     return p;
 }
 
+static void scroll_to_x(Doc *d, int x)
+{
+    RECT tr;
+    int tw, tx, track, span, maxvx = doc_max_vx(d), vis = vis_cols(d);
+    hbar_rect(d, &tr);
+    hbar_thumb(d, &tx, &tw);
+    track = tr.right - tr.left - tw;
+    span = maxvx - vis;
+    if (span < 1) span = 1;
+    d->left = track > 0 ? (x - tr.left - s_dragOffset) * span / track : 0;
+    if (d->left < 0) d->left = 0;
+    if (d->left > span) d->left = span;
+    redraw();
+}
+
 static void scroll_to_y(Doc *d, int y)
 {
     int w, h, th, total, vis = vis_lines();
@@ -1833,7 +1939,7 @@ static void tab_context(int i, int x, int y)
     AppendMenu(m, MF_STRING, 3, "Close All");
     AppendMenu(m, MF_SEPARATOR, 0, NULL);
     AppendMenu(m, MF_STRING, 4, "Copy Path");
-    AppendMenu(m, MF_STRING, 5, "Reveal in Windows Explorer");
+    AppendMenu(m, MF_STRING, 5, "Reveal in " FILE_MANAGER_NAME);
     pt.x = x; pt.y = y; ClientToScreen(g_hwndEditor, &pt);
     c = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, g_hwndEditor, NULL);
     DestroyMenu(m);
@@ -1841,7 +1947,11 @@ static void tab_context(int i, int x, int y)
     else if (c == 2) { Doc *keep = s_docs[i]; int k; for (k = s_n - 1; k >= 0; k--) if (s_docs[k] != keep && !editor_close(k)) break; }
     else if (c == 3) editor_close_all();
     else if (c == 4 && s_docs[i]->path[0]) copy_text(s_docs[i]->path, (int)strlen(s_docs[i]->path));
+#ifdef MAC_OS
+    else if (c == 5 && s_docs[i]->path[0]) mac_reveal_in_finder(s_docs[i]->path);
+#else
     else if (c == 5 && s_docs[i]->path[0]) { char a[MAX_PATH + 16]; sfmt(a, sizeof a, "/select,\"%s\"", s_docs[i]->path); ShellExecute(NULL, "open", "explorer.exe", a, NULL, SW_SHOWNORMAL); }
+#endif
 }
 
 static void text_context(int x, int y)
@@ -1898,6 +2008,17 @@ static void editor_mousedown(HWND w, int x, int y, int dbl)
         else { s_dragOffset = thumbH / 2; scroll_to_y(d, y); }
         s_dragScroll = 1; SetCapture(w);
         return;
+    }
+    if (hbar_needed(d)) {
+        RECT tr; int tx, tw;
+        hbar_rect(d, &tr);
+        if (y >= tr.top && x >= tr.left && x < tr.right) {
+            hbar_thumb(d, &tx, &tw);
+            if (x >= tx && x < tx + tw) s_dragOffset = x - tx;   /* grab the thumb */
+            else { s_dragOffset = tw / 2; scroll_to_x(d, x); }   /* jump to the click */
+            s_dragHScroll = 1; SetCapture(w);
+            return;
+        }
     }
     if (g_minimap && x >= text_right()) { s_dragMini = 1; SetCapture(w); mini_to_y(d, y); return; }
     {
@@ -1988,6 +2109,7 @@ static LRESULT CALLBACK EditorProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
             return 0;
         }
         if (s_dragScroll && is_text(d)) { scroll_to_y(d, y); return 0; }
+        if (s_dragHScroll && is_text(d)) { scroll_to_x(d, x); return 0; }
         if (s_dragMini && is_text(d)) { mini_to_y(d, y); return 0; }
         if (y < TAB_H) for (i = 0; i < s_n; i++) { if (PtInRect(&s_tabRc[i], pt)) ht = i; if (PtInRect(&s_tabClose[i], pt)) hc = i; }
         if (d && d->kind == 1) for (i = 0; i < s_nlinks; i++) if (PtInRect(&s_links[i].r, pt)) hl = i;
@@ -2010,7 +2132,10 @@ static LRESULT CALLBACK EditorProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
         if (s_hoverTab >= 0 || s_hoverClose >= 0 || s_hoverLink >= 0) { s_hoverTab = s_hoverClose = s_hoverLink = -1; InvalidateRect(w, NULL, FALSE); }
         return 0;
     case WM_LBUTTONUP:
-        if (s_selecting || s_dragScroll || s_dragMini) { s_selecting = s_dragScroll = s_dragMini = 0; ReleaseCapture(); redraw(); }
+        if (s_selecting || s_dragScroll || s_dragMini || s_dragHScroll) {
+            s_selecting = s_dragScroll = s_dragMini = s_dragHScroll = 0;
+            ReleaseCapture(); redraw();
+        }
         return 0;
     case WM_MOUSEWHEEL:
         if (is_text(d)) {

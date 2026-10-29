@@ -2,8 +2,9 @@
  *
  * XPico Code is written against Win32. Rather than rewrite the workbench, this
  * header declares the subset of Win32 that the editor actually uses (~150 calls)
- * and the mac/*.c files implement it on top of QuickDraw and the Carbon Event
- * Manager. src/xpcode.h includes this instead of <windows.h> when MAC_OS is set.
+ * and the shim's own sources implement it on top of QuickDraw and the Carbon
+ * Event Manager. src/xpcode.h includes this rather than <windows.h> when
+ * MAC_OS is set.
  *
  * What is deliberately missing: processes, pipes and threads. Mac OS 9 has no
  * shell to drive, so terminal.c is compiled out (see HAVE_TERMINAL in xpcode.h)
@@ -12,7 +13,7 @@
 #define MAC_WIN32_H
 
 /* Carbon.h is deliberately NOT included here. The app code includes only this
- * header, so it never sees the Toolbox namespace; the mac/*.c files include
+ * header, so it never sees the Toolbox namespace; the shim source files include
  * Carbon.h themselves, before this header.
  *
  * Seven Win32 names also exist in Carbon with different signatures. They are
@@ -33,6 +34,7 @@
 #define SetCursor       w32_SetCursor
 
 #include <stddef.h>
+#include <stdarg.h>
 
 /* ---- scalar types ---- */
 typedef int                 BOOL;
@@ -179,7 +181,7 @@ typedef struct { DWORD cbSize, dwFlags; HWND hwndTrack; DWORD dwHoverTime; } TRA
 #define OPAQUE 2
 #define SRCCOPY 0x00CC0020L
 
-/* ---- window management (mac/wnd.c) ---- */
+/* ---- window management (mac-carbon/wnd.c) ---- */
 BOOL    RegisterClass(const WNDCLASS *wc);
 HWND    CreateWindowEx(DWORD exstyle, LPCSTR cls, LPCSTR name, DWORD style,
                        int x, int y, int w, int h, HWND parent, HMENU menu,
@@ -215,7 +217,7 @@ short   GetKeyState(int vk);
 void    SetWindowText(HWND w, LPCSTR s);
 int     GetWindowText(HWND w, LPSTR buf, int n);
 
-/* ---- drawing (mac/gdi.c) ---- */
+/* ---- drawing (mac-carbon/gdi.c) ---- */
 HDC     BeginPaint(HWND w, PAINTSTRUCT *ps);
 void    EndPaint(HWND w, const PAINTSTRUCT *ps);
 HDC     GetDC(HWND w);
@@ -248,7 +250,7 @@ int     SaveDC(HDC dc);
 BOOL    RestoreDC(HDC dc, int state);
 int     IntersectClipRect(HDC dc, int l, int t, int r, int b);
 
-/* caret: QuickDraw has none, so mac/gdi.c blinks one itself */
+/* caret: QuickDraw has none, so mac-carbon/gdi.c blinks one itself */
 BOOL    CreateCaret(HWND w, HBITMAP b, int cw, int ch);
 BOOL    ShowCaret(HWND w);
 BOOL    DestroyCaret(void);
@@ -262,7 +264,7 @@ void    SetRectEmpty(LPRECT r);
 BOOL    IsRectEmpty(const RECT *r);
 BOOL    PtInRect(const RECT *r, POINT p);
 
-/* ---- system / files (mac/sys.c) ---- */
+/* ---- system / files (mac-carbon/sys.c) ---- */
 UINT    GetPrivateProfileInt(LPCSTR sec, LPCSTR key, int def, LPCSTR file);
 DWORD   GetPrivateProfileString(LPCSTR sec, LPCSTR key, LPCSTR def, LPSTR buf, DWORD n, LPCSTR file);
 BOOL    WritePrivateProfileString(LPCSTR sec, LPCSTR key, LPCSTR val, LPCSTR file);
@@ -326,11 +328,33 @@ BOOL    TrackPopupMenu(HMENU m, UINT flags, int x, int y, int reserved, HWND w, 
 BOOL    MacChooseFile(char *path, int n, BOOL save);
 BOOL    MacChooseFolder(char *path, int n);
 
-/* ---- the rest of the surface (mac/compat.c) ---- */
+/* installs a callback run once per event-loop pass (mac-carbon/wnd.c) */
+void    shim_set_idle(void (*fn)(void));
+
+/* which system this binary is running on (mac-carbon/sys.c) */
+void    shim_child_rect(HWND w, LPRECT r);
+HWND    shim_parent(HWND w);
+HWND    shim_root_window(void);
+int     shim_child_id(HWND w);
+int     mac_is_osx(void);
+int     mac_delete_path(const char *path);
+int     mac_lang_sniff(const char *path, int lang_plain, int lang_c, int lang_py,
+                       int lang_js, int lang_html, int lang_md);
+int     mac_reveal_in_finder(const char *path);
+void    mac_install_drop_handler(void);
+void    mac_bless_self(void);
+void    mac_drop_release(void *d);
+void   *mac_watch_open(const char *path);
+int     mac_watch_changed(void *h);
+void    mac_watch_close(void *h);
+int     mac_set_file_type(const char *path, unsigned long type, unsigned long creator);
+void    mac_system_version_string(char *buf, int n);
+
+/* ---- the rest of the surface (mac-carbon/compat.c) ---- */
 typedef long LONG_PTR;
 
 /* cursors and icons: the IDC_/IDI_ values are the Win32 ones, so that
- * mac/compat.c can tell which cursor was asked for. */
+ * mac-carbon/compat.c can tell which cursor was asked for. */
 #define IDC_ARROW    ((LPCSTR)32512)
 #define IDC_IBEAM    ((LPCSTR)32513)
 #define IDC_SIZEWE   ((LPCSTR)32644)
@@ -360,6 +384,12 @@ typedef long LONG_PTR;
 
 #define GET_WHEEL_DELTA_WPARAM(wp) ((short)HIWORD(wp))
 
+/* mouse button flags in a WM_MOUSEMOVE wParam */
+#define MK_LBUTTON 0x0001
+#define MK_RBUTTON 0x0002
+#define MK_SHIFT   0x0004
+#define MK_CONTROL 0x0008
+
 /* generic file access, for CreateFile */
 #define GENERIC_READ  0x80000000UL
 #define GENERIC_WRITE 0x40000000UL
@@ -375,8 +405,190 @@ typedef long LONG_PTR;
 #define INFINITE 0xFFFFFFFFUL
 #define WAIT_OBJECT_0 0
 
+typedef long INT_PTR;
+typedef unsigned long UINT_PTR;
+typedef HANDLE HGLOBAL;
+typedef void *LPITEMIDLIST;
+
 LONG_PTR SetWindowLongPtr(HWND w, int index, LONG_PTR v);
 LRESULT  CallWindowProc(WNDPROC proc, HWND w, UINT m, WPARAM wp, LPARAM lp);
+
+/* ---- structs the app fills in directly ---- */
+
+typedef struct {
+    WORD wYear, wMonth, wDayOfWeek, wDay, wHour, wMinute, wSecond, wMilliseconds;
+} SYSTEMTIME;
+
+typedef struct {
+    DWORD dwFileAttributes;
+    FILETIME ftCreationTime, ftLastAccessTime, ftLastWriteTime;
+    DWORD nFileSizeHigh, nFileSizeLow;
+} WIN32_FILE_ATTRIBUTE_DATA;
+#define GetFileExInfoStandard 0
+
+typedef struct {
+    DWORD lStructSize;
+    HWND  hwndOwner;
+    HANDLE hInstance;
+    LPCSTR lpstrFilter, lpstrCustomFilter;
+    DWORD nMaxCustFilter, nFilterIndex;
+    LPSTR  lpstrFile;
+    DWORD  nMaxFile;
+    LPSTR  lpstrFileTitle;
+    DWORD  nMaxFileTitle;
+    LPCSTR lpstrInitialDir, lpstrTitle;
+    DWORD  Flags;
+    WORD   nFileOffset, nFileExtension;
+    LPCSTR lpstrDefExt;
+    LPARAM lCustData;
+    LPVOID lpfnHook;
+    LPCSTR lpTemplateName;
+} OPENFILENAME;
+
+#define OFN_EXPLORER         0x00080000
+#define OFN_FILEMUSTEXIST    0x00001000
+#define OFN_PATHMUSTEXIST    0x00000800
+#define OFN_OVERWRITEPROMPT  0x00000002
+#define OFN_ALLOWMULTISELECT 0x00000200
+#define OFN_HIDEREADONLY     0x00000004
+
+typedef struct {
+    HWND   hwndOwner;
+    LPITEMIDLIST pidlRoot;
+    LPSTR  pszDisplayName;
+    LPCSTR lpszTitle;
+    UINT   ulFlags;
+    LPVOID lpfn;
+    LPARAM lParam;
+    int    iImage;
+} BROWSEINFO;
+
+#define BIF_RETURNONLYFSDIRS 0x0001
+#define BIF_NEWDIALOGSTYLE   0x0040
+#define BFFM_INITIALIZED     1
+#define BFFM_SETSELECTION    0x0467
+#define CSIDL_APPDATA        0x001A
+
+typedef struct {
+    HWND  hwnd;
+    UINT  wFunc;
+    LPCSTR pFrom, pTo;
+    WORD  fFlags;
+    BOOL  fAnyOperationsAborted;
+    LPVOID hNameMappings;
+    LPCSTR lpszProgressTitle;
+} SHFILEOPSTRUCT;
+
+#define FO_DELETE            3
+#define FOF_ALLOWUNDO        0x0040
+#define FOF_NOCONFIRMATION   0x0010
+#define FOF_SILENT           0x0004
+
+typedef struct {
+    DWORD  cbSize;
+    HWND   hwndOwner;
+    HANDLE hInstance;
+    LPCSTR lpszText, lpszCaption;
+    DWORD  dwStyle;
+    LPCSTR lpszIcon;
+    DWORD  dwContextHelpId;
+    LPVOID lpfnMsgBoxCallback;
+    DWORD  dwLanguageId;
+} MSGBOXPARAMS;
+#define MB_USERICON 0x80
+
+typedef struct {
+    UINT  length, flags, showCmd;
+    POINT ptMinPosition, ptMaxPosition;
+    RECT  rcNormalPosition;
+} WINDOWPLACEMENT;
+
+typedef struct {
+    DWORD biSize;
+    LONG  biWidth, biHeight;
+    WORD  biPlanes, biBitCount;
+    DWORD biCompression, biSizeImage;
+    LONG  biXPelsPerMeter, biYPelsPerMeter;
+    DWORD biClrUsed, biClrImportant;
+} BITMAPINFOHEADER;
+
+typedef struct {
+    BITMAPINFOHEADER bmiHeader;
+    DWORD bmiColors[1];
+} BITMAPINFO;
+
+#define BI_RGB 0
+#define DIB_RGB_COLORS 0
+
+typedef struct { DWORD dwSize, dwICC; } INITCOMMONCONTROLSEX;
+#define ICC_WIN95_CLASSES 0x000000FF
+
+/* ---- remaining constants ---- */
+
+/* CreateFont arguments: the shim only reads the height, weight and pitch. */
+#define FW_NORMAL 400
+#define FW_BOLD   700
+#define ANSI_CHARSET 0
+#define DEFAULT_CHARSET 1
+#define OUT_TT_PRECIS 4
+#define OUT_DEFAULT_PRECIS 0
+#define CLIP_DEFAULT_PRECIS 0
+#define DEFAULT_QUALITY 0
+#define CLEARTYPE_QUALITY 5
+#define ANTIALIASED_QUALITY 4
+#define FIXED_PITCH 1
+#define VARIABLE_PITCH 2
+#define DEFAULT_PITCH 0
+#define FF_DONTCARE 0
+
+#define PS_SOLID 0
+#define NULL_BRUSH 5
+#define BLACKNESS 0x00000042L
+#define WHITENESS 0x00FF0062L
+
+#define CS_DBLCLKS 0x0008
+#define HTCLIENT 1
+#define HWND_TOP ((HWND)0)
+#define SWP_NOSIZE 0x0001
+#define SWP_NOMOVE 0x0002
+#define SWP_SHOWWINDOW 0x0040
+#define TPM_BOTTOMALIGN 0x0020
+#define IDC_WAIT ((LPCSTR)32514)
+
+#define EN_SETFOCUS  0x0100
+#define EN_KILLFOCUS 0x0200
+#define WM_SETFONT   0x0030
+
+#define CREATE_NEW 1
+#define FILE_ATTRIBUTE_HIDDEN 0x02
+#define FILE_ATTRIBUTE_SYSTEM 0x04
+#define FILE_NOTIFY_CHANGE_FILE_NAME 0x01
+#define FILE_NOTIFY_CHANGE_DIR_NAME  0x02
+
+#define SUCCEEDED(hr) ((hr) >= 0)
+
+/* keys the editor binds that have no Mac equivalent name */
+#define VK_OEM_PLUS  0xBB
+#define VK_OEM_MINUS 0xBD
+#define VK_OEM_1     0xBA
+#define VK_OEM_2     0xBF
+#define VK_OEM_3     0xC0
+#define VK_OEM_4     0xDB
+#define VK_OEM_5     0xDC
+#define VK_OEM_6     0xDD
+#define VK_OEM_7     0xDE
+#define VK_OEM_8     0xDF
+#define VK_ADD       0x6B
+#define VK_SUBTRACT  0x6D
+#define VK_DIVIDE    0x6F
+#define VK_MULTIPLY  0x6A
+#define VK_NUMPAD0   0x60
+
+/* MSVC spellings the source uses; newlib has the POSIX ones. */
+int   _stricmp(const char *a, const char *b);
+int   _strnicmp(const char *a, const char *b, size_t n);
+char *_strdup(const char *s);
+int   _vsnprintf(char *buf, size_t n, const char *fmt, va_list ap);
 
 HANDLE  CreateFile(LPCSTR path, DWORD access, DWORD share, LPVOID sa,
                    DWORD create, DWORD flags, HANDLE tmpl);
@@ -415,7 +627,7 @@ HCURSOR LoadCursor(HINSTANCE i, LPCSTR name);
 HICON   LoadIcon(HINSTANCE i, LPCSTR name);
 HANDLE  LoadImage(HINSTANCE i, LPCSTR n, UINT type, int cx, int cy, UINT flags);
 HGDIOBJ GetStockObject(int obj);
-void    SetCursor(HCURSOR c);
+HCURSOR SetCursor(HCURSOR c);   /* returns the previous cursor, as Win32 does */
 int     GetSystemMetrics(int index);
 BOOL    GetWindowPlacement(HWND w, LPVOID pl);
 BOOL    SetWindowPos(HWND w, HWND after, int x, int y, int cw, int ch, UINT flags);

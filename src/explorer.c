@@ -15,6 +15,7 @@ static Node *s_tree;
 static Node **s_rows; static int s_nrows, s_rowsCap;
 static char s_selPath[MAX_PATH];
 static int s_scroll, s_hover = -1, s_hoverActions, s_actHover = -1;
+static int s_dragBar, s_dragBarOffset;
 static HANDLE s_watch = INVALID_HANDLE_VALUE;
 static RECT s_actRc[4], s_openBtn, s_runBtn, s_buildBtn;
 
@@ -33,7 +34,7 @@ static Node *node_new(const char *dir, const char *name, int isdir, int depth)
 {
     Node *n = (Node *)calloc(1, sizeof(Node));
     strcpy(n->name, name);
-    if (dir) sfmt(n->path, MAX_PATH, "%s\\%s", dir, name); else strcpy(n->path, name);
+    if (dir) sfmt(n->path, MAX_PATH, "%s" PATH_SEPS "%s", dir, name); else strcpy(n->path, name);
     n->isdir = isdir; n->depth = depth;
     return n;
 }
@@ -57,7 +58,7 @@ static void load_dir(Node *n)
 {
     WIN32_FIND_DATA fd; HANDLE h; char pat[MAX_PATH]; int cap = 0;
     n->loaded = 1;
-    sfmt(pat, sizeof pat, "%s\\*", n->path);
+    sfmt(pat, sizeof pat, "%s" PATH_SEPS "*", n->path);
     h = FindFirstFile(pat, &fd);
     if (h == INVALID_HANDLE_VALUE) return;
     do {
@@ -163,7 +164,7 @@ void sidebar_reveal(const char *path)
     seg = rel;
     while (seg && n) {
         int i; Node *found = NULL;
-        next = strchr(seg, '\\');
+        next = strchr(seg, PATH_SEP);
         if (next) *next++ = 0;
         if (!n->loaded) load_dir(n);
         for (i = 0; i < n->nkids; i++) if (!_stricmp(n->kids[i]->name, seg)) { found = n->kids[i]; break; }
@@ -179,15 +180,15 @@ void sidebar_reveal(const char *path)
 static void collect(const char *dir, const char *rel, char ***out, int *n, int *cap)
 {
     WIN32_FIND_DATA fd; HANDLE h; char pat[MAX_PATH];
-    sfmt(pat, sizeof pat, "%s\\*", dir);
+    sfmt(pat, sizeof pat, "%s" PATH_SEPS "*", dir);
     h = FindFirstFile(pat, &fd);
     if (h == INVALID_HANDLE_VALUE) return;
     do {
         char full[MAX_PATH], r[MAX_PATH];
         if (fd.cFileName[0] == '.') continue;
         if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
-        sfmt(full, sizeof full, "%s\\%s", dir, fd.cFileName);
-        if (rel[0]) sfmt(r, sizeof r, "%s\\%s", rel, fd.cFileName); else sfmt(r, sizeof r, "%s", fd.cFileName);
+        sfmt(full, sizeof full, "%s" PATH_SEPS "%s", dir, fd.cFileName);
+        if (rel[0]) sfmt(r, sizeof r, "%s" PATH_SEPS "%s", rel, fd.cFileName); else sfmt(r, sizeof r, "%s", fd.cFileName);
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             if (!_stricmp(fd.cFileName, "node_modules")) continue;
             if (*n < 5000) collect(full, r, out, n, cap);
@@ -225,7 +226,7 @@ static void create_cb(const char *text, void *ctx)
     int folder = (int)(INT_PTR)ctx;
     if (!text[0]) return;
     target_dir(dir);
-    sfmt(full, sizeof full, "%s\\%s", dir, text);
+    sfmt(full, sizeof full, "%s" PATH_SEPS "%s", dir, text);
     if (folder) {
         if (!CreateDirectory(full, NULL)) { MessageBox(g_hwndMain, "Could not create the folder.", APP_NAME, MB_ICONERROR); return; }
         out_log("Created folder %s", full);
@@ -279,8 +280,8 @@ static void tree_context(int x, int y)
     AppendMenu(m, MF_STRING, 1, "New File...");
     AppendMenu(m, MF_STRING, 2, "New Folder...");
     AppendMenu(m, MF_SEPARATOR, 0, NULL);
-    AppendMenu(m, MF_STRING, 3, "Reveal in Windows Explorer");
-    AppendMenu(m, MF_STRING, 4, "Open in Integrated Terminal");
+    AppendMenu(m, MF_STRING, 3, "Reveal in " FILE_MANAGER_NAME);
+    if (TERMINAL_AVAILABLE()) AppendMenu(m, MF_STRING, 4, "Open in Integrated Terminal");
     AppendMenu(m, MF_SEPARATOR, 0, NULL);
     AppendMenu(m, MF_STRING | (n ? 0 : MF_GRAYED), 5, "Copy Path");
     AppendMenu(m, MF_STRING | (n ? 0 : MF_GRAYED), 6, "Copy Relative Path");
@@ -295,9 +296,14 @@ static void tree_context(int x, int y)
     case 1: sidebar_new_item(0); break;
     case 2: sidebar_new_item(1); break;
     case 3: {
+#ifdef MAC_OS
+        mac_reveal_in_finder(n ? n->path : g_root);
+#else
         char a[MAX_PATH + 16];
         if (n) sfmt(a, sizeof a, "/select,\"%s\"", n->path); else sfmt(a, sizeof a, "\"%s\"", g_root);
-        ShellExecute(NULL, "open", "explorer.exe", a, NULL, SW_SHOWNORMAL); break; }
+        ShellExecute(NULL, "open", "explorer.exe", a, NULL, SW_SHOWNORMAL);
+#endif
+        break; }
     case 4: g_panelVisible = 1; app_layout(); term_new(dir); break;
     case 5: case 6: {
         char rel[MAX_PATH]; const char *t = n->path; HGLOBAL h; char *p;
@@ -331,7 +337,7 @@ static void run_search(void)
     nf = sidebar_list_files(&files);
     for (i = 0; i < nf && s_nhits < 2000; i++) {
         char full[MAX_PATH], *t, *p, *line; int len, ln = 0, fileIdx = -1, k, bin = 0;
-        sfmt(full, sizeof full, "%s\\%s", g_root, files[i]);
+        sfmt(full, sizeof full, "%s" PATH_SEPS "%s", g_root, files[i]);
         t = read_file(full, &len);
         if (!t) continue;
         if (len > 2 * 1024 * 1024) { free(t); continue; }
@@ -389,7 +395,7 @@ static void open_hit(int row)
     SRow *r; char full[MAX_PATH];
     if (row < 0 || row >= s_nsrows) return;
     r = &s_srows[row];
-    sfmt(full, sizeof full, "%s\\%s", g_root, s_hitFiles[r->file]);
+    sfmt(full, sizeof full, "%s" PATH_SEPS "%s", g_root, s_hitFiles[r->file]);
     if (!editor_open(full)) return;
     if (r->hit >= 0) editor_goto(s_hits[r->hit].line + 1, s_hits[r->hit].col + 1, s_hits[r->hit].len);
 }
@@ -412,13 +418,59 @@ static void paint_header(HDC dc, int w, const char *title)
     text_at(dc, 20, 12, title, -1, HEX(0xBBBBBB), g_fUISmall);
 }
 
+/* Geometry of the side bar's scrollbar for whichever view is showing, so the
+ * hit testing and the painting cannot drift apart. Returns 0 when there is
+ * nothing to scroll. */
+#define SIDEBAR_SB_W 10
+
+static int sidebar_bar(int *y0, int *h, int *total, int *vis)
+{
+    RECT r;
+    GetClientRect(g_hwndSidebar, &r);
+    if (g_sideView == 0) {
+        *y0 = HEADER_H + SECTION_H;
+        *h = r.bottom - HEADER_H - SECTION_H;
+        *total = s_nrows;
+        *vis = visible_rows();
+    } else if (g_sideView == 1) {
+        *y0 = HEADER_H + 58;
+        *h = r.bottom - HEADER_H - 58;
+        *total = s_nsrows;
+        *vis = *h / ROW_H;
+    } else {
+        return 0;                       /* the Run view does not scroll */
+    }
+    if (*h <= 0 || *total <= *vis) return 0;
+    return 1;
+}
+
+/* Thumb position and height, matching paint_scrollbar exactly. */
+static void sidebar_thumb(int y0, int h, int total, int vis, int pos, int *ty, int *th)
+{
+    *th = h * vis / total;
+    if (*th < 20) *th = 20;
+    *ty = y0 + (h - *th) * pos / (total - vis);
+}
+
+/* Map a pointer position on the track to a scroll row. */
+static void sidebar_scroll_to(int y)
+{
+    int y0, h, total, vis, ty, th;
+    if (!sidebar_bar(&y0, &h, &total, &vis)) return;
+    sidebar_thumb(y0, h, total, vis, s_scroll, &ty, &th);
+    if (h - th > 0) s_scroll = (y - y0 - s_dragBarOffset) * (total - vis) / (h - th);
+    if (s_scroll > total - vis) s_scroll = total - vis;
+    if (s_scroll < 0) s_scroll = 0;
+    InvalidateRect(g_hwndSidebar, NULL, FALSE);
+}
+
 static void paint_scrollbar(HDC dc, int w, int y0, int h, int total, int vis, int pos)
 {
     int th, ty;
     if (total <= vis || h <= 0) return;
-    th = h * vis / total; if (th < 20) th = 20;
-    ty = y0 + (h - th) * pos / (total - vis);
-    fill(dc, w - 10, ty, 10, th, HEX(0x424242));
+    sidebar_thumb(y0, h, total, vis, pos, &ty, &th);
+    fill(dc, w - SIDEBAR_SB_W, ty, SIDEBAR_SB_W, th,
+         s_dragBar ? HEX(0x5F5F5F) : HEX(0x424242));
 }
 
 static void paint_explorer(HDC dc, int w, int h)
@@ -432,7 +484,10 @@ static void paint_explorer(HDC dc, int w, int h)
         fill_rc(dc, &s_openBtn, s_hover == -2 ? HEX(0x1177BB) : HEX(0x0E639C));
         text_at(dc, (w - text_w(dc, g_fUI, "Open Folder", -1)) / 2, HEADER_H + 51, "Open Folder", -1, C_TEXT_BRIGHT, g_fUI);
         text_at(dc, 20, HEADER_H + 90, "Opening a folder will show its files here", -1, C_TEXT_MUTED, g_fUI);
-        text_at(dc, 20, HEADER_H + 106, "and start the terminal inside it.", -1, C_TEXT_MUTED, g_fUI);
+        text_at(dc, 20, HEADER_H + 106,
+                TERMINAL_AVAILABLE() ? "and start the terminal inside it."
+                                     : "so you can browse and edit them.",
+                -1, C_TEXT_MUTED, g_fUI);
         return;
     }
     /* section header with actions */
@@ -508,7 +563,7 @@ static void paint_search(HDC dc, int w, int h)
 
 static void paint_run(HDC dc, int w)
 {
-    int y = HEADER_H + 14;
+    int y = HEADER_H + 14, i;
     paint_header(dc, w, "RUN");
     SetRect(&s_runBtn, 20, y, w - 20, y + 28);
     fill_rc(dc, &s_runBtn, s_hover == -3 ? HEX(0x1177BB) : HEX(0x0E639C));
@@ -519,11 +574,9 @@ static void paint_run(HDC dc, int w)
     text_at(dc, (w - text_w(dc, g_fUI, "Run Build Task", -1)) / 2, y + 7, "Run Build Task", -1, C_TEXT_BRIGHT, g_fUI);
     y += 46;
     text_at(dc, 20, y, "F5 runs the active file in the terminal:", -1, C_TEXT_MUTED, g_fUI); y += 20;
-    text_at(dc, 28, y, ".c   compile with tcc, then run", -1, C_TEXT_MUTED, g_fUI); y += 18;
-    text_at(dc, 28, y, ".py  python -u", -1, C_TEXT_MUTED, g_fUI); y += 18;
-    text_at(dc, 28, y, ".bat call", -1, C_TEXT_MUTED, g_fUI); y += 18;
-    text_at(dc, 28, y, ".js  cscript", -1, C_TEXT_MUTED, g_fUI); y += 28;
-    text_at(dc, 20, y, "Ctrl+Shift+B runs build.bat in the folder.", -1, C_TEXT_MUTED, g_fUI);
+    for (i = 0; RUN_RECIPES[i]; i++) { text_at(dc, 28, y, RUN_RECIPES[i], -1, C_TEXT_MUTED, g_fUI); y += 18; }
+    y += 10;
+    text_at(dc, 20, y, "Ctrl+Shift+B runs " BUILD_SCRIPT " in the folder.", -1, C_TEXT_MUTED, g_fUI);
 }
 
 static void sidebar_paint(HWND w)
@@ -546,6 +599,8 @@ static void sidebar_paint(HWND w)
 
 void sidebar_set_view(int view)
 {
+    /* the Run view only drives the terminal */
+    if (view == 2 && !TERMINAL_AVAILABLE()) view = 0;
     g_sideView = view;
     s_scroll = 0; s_hover = -1;
     ShowWindow(s_searchEdit, view == 1 ? SW_SHOW : SW_HIDE);
@@ -628,6 +683,20 @@ static LRESULT CALLBACK SidebarProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
     case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK: {
         int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp), r, k; POINT pt; pt.x = x; pt.y = y;
         SetFocus(w);
+        {   /* the scrollbar first: a click here used to fall through and
+             * select whatever row happened to be under the pointer */
+            RECT cr; int y0, h, total, vis, ty, th;
+            GetClientRect(w, &cr);
+            if (x >= cr.right - SIDEBAR_SB_W && sidebar_bar(&y0, &h, &total, &vis) &&
+                y >= y0 && y < y0 + h) {
+                sidebar_thumb(y0, h, total, vis, s_scroll, &ty, &th);
+                if (y >= ty && y < ty + th) s_dragBarOffset = y - ty;
+                else { s_dragBarOffset = th / 2; sidebar_scroll_to(y); }
+                s_dragBar = 1;
+                SetCapture(w);
+                return 0;
+            }
+        }
         if (g_sideView == 0) {
             if (!g_root[0]) { if (PtInRect(&s_openBtn, pt)) app_command(CMD_OPEN_FOLDER); return 0; }
             if (y >= HEADER_H && y < HEADER_H + SECTION_H) {
@@ -659,6 +728,7 @@ static LRESULT CALLBACK SidebarProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
         }
         return 0;
     case WM_MOUSEMOVE: {
+        if (s_dragBar) { sidebar_scroll_to(GET_Y_LPARAM(lp)); return 0; }
         int y = GET_Y_LPARAM(lp), h = row_at(y), ha = -1, k; POINT pt; TRACKMOUSEEVENT t;
         pt.x = GET_X_LPARAM(lp); pt.y = y;
         if (g_sideView == 0 && !g_root[0] && PtInRect(&s_openBtn, pt)) h = -2;
@@ -668,6 +738,9 @@ static LRESULT CALLBACK SidebarProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
         t.cbSize = sizeof t; t.dwFlags = TME_LEAVE; t.hwndTrack = w; t.dwHoverTime = 0; TrackMouseEvent(&t);
         return 0;
     }
+    case WM_LBUTTONUP:
+        if (s_dragBar) { s_dragBar = 0; ReleaseCapture(); InvalidateRect(w, NULL, FALSE); }
+        return 0;
     case WM_MOUSELEAVE: s_hover = -1; s_hoverActions = 0; s_actHover = -1; InvalidateRect(w, NULL, FALSE); return 0;
     case WM_MOUSEWHEEL: {
         int total = g_sideView == 0 ? s_nrows : s_nsrows;

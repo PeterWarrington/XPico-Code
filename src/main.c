@@ -91,7 +91,7 @@ int sfmt(char *buf, int n, const char *f, ...)
 const char *path_name(const char *p)
 {
     const char *s = p + strlen(p);
-    while (s > p && s[-1] != '\\' && s[-1] != '/') s--;
+    while (s > p && !IS_PATH_SEP(s[-1])) s--;
     return s;
 }
 
@@ -104,7 +104,7 @@ const char *path_ext(const char *p)
 int path_rel(const char *full, char *out, int n)
 {
     int rl = (int)strlen(g_root);
-    if (rl && _strnicmp(full, g_root, rl) == 0 && (full[rl] == '\\' || full[rl] == '/')) {
+    if (rl && _strnicmp(full, g_root, rl) == 0 && IS_PATH_SEP(full[rl])) {
         sfmt(out, n, "%s", full + rl + 1);
         return 1;
     }
@@ -135,6 +135,14 @@ int lang_from_path(const char *p)
     if (!_stricmp(e, "ini") || !_stricmp(e, "cfg") || !_stricmp(e, "inf")) return LANG_INI;
     if (!_stricmp(e, "html") || !_stricmp(e, "htm") || !_stricmp(e, "xml")) return LANG_HTML;
     if (!_stricmp(e, "md")) return LANG_MD;
+#ifdef MAC_OS
+    /* Classic Mac files frequently carry no extension, so ask the Finder type
+     * and the file's first line before giving up. */
+    if (!e[0]) {
+        int guess = mac_lang_sniff(p, LANG_PLAIN, LANG_C, LANG_PY, LANG_JS, LANG_HTML, LANG_MD);
+        if (guess >= 0) return guess;
+    }
+#endif
     return LANG_PLAIN;
 }
 
@@ -155,6 +163,27 @@ char *read_file(const char *path, int *len)
     CloseHandle(h);
     if (!buf) return NULL;
     buf[got] = 0;
+
+    /* Normalise line endings to LF, which is what the editor's buffer uses.
+     * Classic Mac OS terminates lines with a bare CR, and the line splitter
+     * only breaks on LF and throws CRs away -- so without this a Mac text file
+     * loads as one enormous line. Handling all three forms here also means the
+     * Windows build opens Mac and Unix files correctly. */
+    {
+        DWORD r = 0, w = 0;
+        while (r < got) {
+            if (buf[r] == '\r') {
+                buf[w++] = '\n';
+                r++;
+                if (r < got && buf[r] == '\n') r++;   /* CRLF counts as one */
+            } else {
+                buf[w++] = buf[r++];
+            }
+        }
+        got = w;
+        buf[got] = 0;
+    }
+
     if (len) *len = (int)got;
     return buf;
 }
@@ -350,7 +379,8 @@ void file_badge(HDC dc, const char *name, int isdir, int open, int x, int y)
 
 static int s_actHover = -1;
 static const int s_actIcons[] = { ICON_FILES, ICON_SEARCH, ICON_RUN };
-#define NVIEWS 3
+/* the Run view drives the terminal, so it is dropped when there is no shell */
+#define NVIEWS (TERMINAL_AVAILABLE() ? 3 : 2)
 
 static int activity_hit(int y, int h)
 {
@@ -461,7 +491,9 @@ static LRESULT CALLBACK StatusProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
         if (g_root[0]) status_item(mem, &x, 0, path_name(g_root), ICON_FILES, CMD_SHOW_EXPLORER, s_statusHover);
         problems_count(&errs, &warns);
         sfmt(buf, sizeof buf, "%d   ", errs);
-        {
+        /* the error and warning counts come from compiler output, so there is
+         * nothing to report without a shell to produce it */
+        if (TERMINAL_AVAILABLE()) {
             int x0 = x; status_item(mem, &x, 0, "             ", -1, CMD_SHOW_PROBLEMS, s_statusHover);
             draw_icon(mem, ICON_ERROR, x0 + 15, STATUS_H / 2, 13, C_TEXT_BRIGHT);
             sfmt(buf, sizeof buf, "%d", errs); text_at(mem, x0 + 25, 4, buf, -1, C_TEXT_BRIGHT, g_fUI);
@@ -473,8 +505,8 @@ static LRESULT CALLBACK StatusProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
         editor_status(&line, &col, &lang, &has, &nl);
         if (has) {
             status_item(mem, &x, 1, lang_name(lang), -1, CMD_NONE, s_statusHover);
-            status_item(mem, &x, 1, "CRLF", -1, CMD_NONE, s_statusHover);
-            status_item(mem, &x, 1, "Windows 1252", -1, CMD_NONE, s_statusHover);
+            status_item(mem, &x, 1, LINE_ENDING_NAME, -1, CMD_NONE, s_statusHover);
+            status_item(mem, &x, 1, TEXT_ENCODING_NAME, -1, CMD_NONE, s_statusHover);
             status_item(mem, &x, 1, "Spaces: 4", -1, CMD_NONE, s_statusHover);
             sfmt(buf, sizeof buf, "Ln %d, Col %d", line, col);
             status_item(mem, &x, 1, buf, -1, CMD_GOTO_LINE, s_statusHover);
@@ -542,6 +574,34 @@ static void make_fonts(void)
     g_fTitle = CreateFont(-46, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, "Trebuchet MS");
     g_fHeading = CreateFont(-19, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, "Trebuchet MS");
     make_code_font();
+}
+
+const char *const RUN_RECIPES[] = {
+#ifdef MAC_OS
+    ".c   compile with cc, then run",
+    ".py  python3 -u",
+    ".js  node",
+    ".sh  sh",
+#else
+    ".c   compile with tcc, then run",
+    ".py  python -u",
+    ".bat call",
+    ".js  cscript",
+#endif
+    NULL
+};
+
+int cmd_needs_terminal(int cmd)
+{
+    switch (cmd) {
+    case CMD_RUN_FILE: case CMD_BUILD_TASK:
+    case CMD_NEW_TERMINAL: case CMD_KILL_TERMINAL: case CMD_CLEAR_TERMINAL:
+    case CMD_FOCUS_TERMINAL: case CMD_SHOW_RUN:
+    case CMD_SHOW_PROBLEMS: case CMD_SHOW_OUTPUT: case CMD_TOGGLE_PANEL:
+        return 1;
+    default:
+        return 0;
+    }
 }
 
 /* ================================================================== layout */
@@ -684,7 +744,7 @@ static void open_file_dialog(void)
         char *p = buf + strlen(buf) + 1;
         if (!*p) editor_open(buf);
         else for (; *p; p += strlen(p) + 1) {
-            char full[MAX_PATH]; sfmt(full, sizeof full, "%s\\%s", buf, p); editor_open(full);
+            char full[MAX_PATH]; sfmt(full, sizeof full, "%s" PATH_SEPS "%s", buf, p); editor_open(full);
         }
     }
 }
@@ -716,6 +776,20 @@ static void run_active_file(int buildOnly)
     p = editor_doc_path(i); e = path_ext(p);
     strcpy(dir, p); *(char *)path_name(dir) = 0;
     if (strlen(dir) > 3) dir[strlen(dir) - 1] = 0;
+#ifdef MAC_OS
+    /* The Mac terminal is a Unix shell behind xpcode-termd, so these are sh
+     * commands with the native toolchain, not cmd.exe with tcc. */
+    if (!_stricmp(e, "c")) {
+        char out[MAX_PATH]; strcpy(out, path_name(p)); out[strlen(out) - 2] = 0;
+        if (buildOnly) sfmt(cmd, sizeof cmd, "cd '%s' && cc '%s' -o '%s'", dir, path_name(p), out);
+        else sfmt(cmd, sizeof cmd, "cd '%s' && cc '%s' -o '%s' && ./'%s'", dir, path_name(p), out, out);
+    }
+    else if (!_stricmp(e, "py")) sfmt(cmd, sizeof cmd, "cd '%s' && python3 -u '%s'", dir, path_name(p));
+    else if (!_stricmp(e, "js")) sfmt(cmd, sizeof cmd, "cd '%s' && node '%s'", dir, path_name(p));
+    else if (!_stricmp(e, "sh")) sfmt(cmd, sizeof cmd, "cd '%s' && sh '%s'", dir, path_name(p));
+    else if (!_stricmp(e, "html") || !_stricmp(e, "htm")) sfmt(cmd, sizeof cmd, "open '%s'", p);
+    else { out_log("Don't know how to run %s files", e); panel_show_tab(1); return; }
+#else
     if (!_stricmp(e, "c")) {
         char exe[MAX_PATH]; strcpy(exe, path_name(p)); exe[strlen(exe) - 2] = 0;
         if (buildOnly) sfmt(cmd, sizeof cmd, "cd /d \"%s\" && tcc \"%s\" -o \"%s.exe\"", dir, path_name(p), exe);
@@ -727,6 +801,7 @@ static void run_active_file(int buildOnly)
     else if (!_stricmp(e, "js")) sfmt(cmd, sizeof cmd, "cd /d \"%s\" && cscript //nologo \"%s\"", dir, path_name(p));
     else if (!_stricmp(e, "html") || !_stricmp(e, "htm")) sfmt(cmd, sizeof cmd, "start \"\" \"%s\"", p);
     else { out_log("Don't know how to run %s files", e); panel_show_tab(1); return; }
+#endif
     out_log("Run: %s", cmd);
     run_in_terminal(cmd);
 }
@@ -736,9 +811,9 @@ static void build_task(void)
     char bat[MAX_PATH], cmd[MAX_PATH * 2];
     editor_save_all();
     if (g_root[0]) {
-        sfmt(bat, sizeof bat, "%s\\build.bat", g_root);
+        sfmt(bat, sizeof bat, "%s" PATH_SEPS BUILD_SCRIPT, g_root);
         if (file_exists(bat)) {
-            sfmt(cmd, sizeof cmd, "cd /d \"%s\" && call build.bat", g_root);
+            sfmt(cmd, sizeof cmd, BUILD_COMMAND, g_root);
             out_log("Build task: %s", cmd);
             run_in_terminal(cmd);
             return;
@@ -800,6 +875,8 @@ void app_command(int cmd)
         g_sidebarVisible = 1; sidebar_set_view(cmd - CMD_SHOW_EXPLORER); app_layout(); break;
     case CMD_TOGGLE_SIDEBAR: g_sidebarVisible = !g_sidebarVisible; app_layout(); break;
     case CMD_TOGGLE_PANEL:
+        /* nothing to show without a shell */
+        if (!TERMINAL_AVAILABLE()) break;
         g_panelVisible = !g_panelVisible; app_layout();
         if (g_panelVisible) term_focus(); else editor_focus();
         break;
@@ -830,8 +907,14 @@ void app_command(int cmd)
         {
             MSGBOXPARAMS mb; memset(&mb, 0, sizeof mb);
             mb.cbSize = sizeof mb; mb.hwndOwner = g_hwndMain; mb.hInstance = g_hinst;
-            mb.lpszText = APP_NAME " " APP_VERSION "\n\nA Visual Studio Code style editor written in plain Win32 C.\n"
+#ifdef MAC_OS
+            mb.lpszText = APP_NAME " " APP_VERSION "\n\nA Visual Studio Code style editor "
+                          PLATFORM_BLURB ".\n\nNo Chromium, no Electron - just QuickDraw and Carbon.";
+#else
+            mb.lpszText = APP_NAME " " APP_VERSION "\n\nA Visual Studio Code style editor written "
+                          PLATFORM_BLURB " C.\n"
                           "No Chromium, no Electron - just GDI, USER32 and cmd.exe.\n\nBuilt with Tiny C Compiler on Windows XP.";
+#endif
             mb.lpszCaption = "About " APP_NAME; mb.dwStyle = MB_USERICON; mb.lpszIcon = MAKEINTRESOURCE(IDI_APP);
             MessageBoxIndirect(&mb);
         }
@@ -938,14 +1021,14 @@ static HMENU build_menu(void)
     AppendMenu(v, MF_SEPARATOR, 0, NULL);
     AppendMenu(v, MF_STRING, CMD_SHOW_EXPLORER, "&Explorer\tCtrl+Shift+E");
     AppendMenu(v, MF_STRING, CMD_SHOW_SEARCH, "&Search\tCtrl+Shift+F");
-    AppendMenu(v, MF_STRING, CMD_SHOW_RUN, "&Run\tCtrl+Shift+D");
+    if (TERMINAL_AVAILABLE()) AppendMenu(v, MF_STRING, CMD_SHOW_RUN, "&Run\tCtrl+Shift+D");
     AppendMenu(v, MF_SEPARATOR, 0, NULL);
-    AppendMenu(v, MF_STRING, CMD_SHOW_PROBLEMS, "&Problems\tCtrl+Shift+M");
-    AppendMenu(v, MF_STRING, CMD_SHOW_OUTPUT, "&Output\tCtrl+Shift+U");
-    AppendMenu(v, MF_STRING, CMD_FOCUS_TERMINAL, "&Terminal\tCtrl+`");
+    if (TERMINAL_AVAILABLE()) AppendMenu(v, MF_STRING, CMD_SHOW_PROBLEMS, "&Problems\tCtrl+Shift+M");
+    if (TERMINAL_AVAILABLE()) AppendMenu(v, MF_STRING, CMD_SHOW_OUTPUT, "&Output\tCtrl+Shift+U");
+    if (TERMINAL_AVAILABLE()) AppendMenu(v, MF_STRING, CMD_FOCUS_TERMINAL, "&Terminal\tCtrl+`");
     AppendMenu(v, MF_SEPARATOR, 0, NULL);
     AppendMenu(v, MF_STRING, CMD_TOGGLE_SIDEBAR, "Toggle Side &Bar\tCtrl+B");
-    AppendMenu(v, MF_STRING, CMD_TOGGLE_PANEL, "Toggle Pa&nel\tCtrl+J");
+    if (TERMINAL_AVAILABLE()) AppendMenu(v, MF_STRING, CMD_TOGGLE_PANEL, "Toggle Pa&nel\tCtrl+J");
     AppendMenu(v, MF_STRING, CMD_TOGGLE_MINIMAP, "Toggle &Minimap");
     AppendMenu(v, MF_SEPARATOR, 0, NULL);
     AppendMenu(v, MF_STRING, CMD_ZOOM_IN, "Zoom &In\tCtrl+=");
@@ -976,8 +1059,13 @@ static HMENU build_menu(void)
     AppendMenu(bar, MF_POPUP, (UINT_PTR)s, "&Selection");
     AppendMenu(bar, MF_POPUP, (UINT_PTR)v, "&View");
     AppendMenu(bar, MF_POPUP, (UINT_PTR)g, "&Go");
-    AppendMenu(bar, MF_POPUP, (UINT_PTR)r, "&Run");
-    AppendMenu(bar, MF_POPUP, (UINT_PTR)t, "&Terminal");
+    /* Nothing under Run or Terminal can work without a shell. */
+    if (TERMINAL_AVAILABLE()) {
+        AppendMenu(bar, MF_POPUP, (UINT_PTR)r, "&Run");
+        AppendMenu(bar, MF_POPUP, (UINT_PTR)t, "&Terminal");
+    } else {
+        DestroyMenu(r); DestroyMenu(t);
+    }
     AppendMenu(bar, MF_POPUP, (UINT_PTR)h, "&Help");
     return bar;
 }
@@ -1105,6 +1193,8 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE prev, LPSTR cmdline, int show)
 
     g_sidebarVisible = GetPrivateProfileInt("ui", "sidebar", 1, s_ini);
     g_panelVisible = GetPrivateProfileInt("ui", "panel", 1, s_ini);
+    /* Problems, Output and Terminal all report on running commands. */
+    if (!TERMINAL_AVAILABLE()) g_panelVisible = 0;
     s_sideW = GetPrivateProfileInt("ui", "sideW", 250, s_ini);
     s_panelH = GetPrivateProfileInt("ui", "panelH", 230, s_ini);
     g_codeSize = GetPrivateProfileInt("ui", "font", 14, s_ini);

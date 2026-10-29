@@ -13,7 +13,7 @@
 
 /* ------------------------------------------------------------ file I/O */
 
-typedef struct { int used; FILE *fp; } FileHandle;
+typedef struct { int used, wrote; FILE *fp; char path[MAX_PATH * 2]; } FileHandle;
 #define MAX_FILES 16
 static FileHandle s_files[MAX_FILES];
 
@@ -34,6 +34,9 @@ HANDLE CreateFile(LPCSTR path, DWORD access, DWORD share, LPVOID sa,
             if (!fp) return INVALID_HANDLE_VALUE;
             s_files[i].used = 1;
             s_files[i].fp = fp;
+            s_files[i].wrote = (access & 0x40000000UL) ? 1 : 0;
+            strncpy(s_files[i].path, path, sizeof s_files[i].path - 1);
+            s_files[i].path[sizeof s_files[i].path - 1] = 0;
             return (HANDLE)&s_files[i];
         }
     return INVALID_HANDLE_VALUE;
@@ -82,7 +85,12 @@ DWORD GetFileSize(HANDLE h, DWORD *high)
 BOOL CloseHandle(HANDLE h)
 {
     FileHandle *f = (FileHandle *)h;
-    if (f && f->used) { fclose(f->fp); f->used = 0; }
+    if (f && f->used) {
+        fclose(f->fp);
+        /* give anything we just wrote a Finder type, or it is unopenable */
+        if (f->wrote && f->path[0]) mac_set_file_type(f->path, 'TEXT', 'ttxt');
+        f->used = 0;
+    }
     return TRUE;
 }
 
@@ -186,6 +194,42 @@ void Sleep(DWORD ms)
     while (TickCount() < end) { /* spin: no scheduler to yield to on OS 9 */ }
 }
 
+/* ------------------------------------------------- MSVC string spellings */
+
+int _stricmp(const char *a, const char *b)
+{
+    for (; *a && *b; a++, b++) {
+        int ca = (*a >= 'A' && *a <= 'Z') ? *a + 32 : *a;
+        int cb = (*b >= 'A' && *b <= 'Z') ? *b + 32 : *b;
+        if (ca != cb) return ca - cb;
+    }
+    return (unsigned char)*a - (unsigned char)*b;
+}
+
+int _strnicmp(const char *a, const char *b, size_t n)
+{
+    for (; n && *a && *b; a++, b++, n--) {
+        int ca = (*a >= 'A' && *a <= 'Z') ? *a + 32 : *a;
+        int cb = (*b >= 'A' && *b <= 'Z') ? *b + 32 : *b;
+        if (ca != cb) return ca - cb;
+    }
+    if (!n) return 0;
+    return (unsigned char)*a - (unsigned char)*b;
+}
+
+char *_strdup(const char *s)
+{
+    size_t n = strlen(s) + 1;
+    char *p = (char *)malloc(n);
+    if (p) memcpy(p, s, n);
+    return p;
+}
+
+int _vsnprintf(char *buf, size_t n, const char *fmt, va_list ap)
+{
+    return vsnprintf(buf, n, fmt, ap);
+}
+
 LPSTR CharUpper(LPSTR s)
 {
     char *p;
@@ -216,9 +260,17 @@ HANDLE  LoadImage(HINSTANCE i, LPCSTR n, UINT t, int cx, int cy, UINT f)
     (void)i; (void)n; (void)t; (void)cx; (void)cy; (void)f;
     return NULL;
 }
-HGDIOBJ GetStockObject(int obj) { (void)obj; return NULL; }
+HGDIOBJ gdi_stock_object(int obj);
 
-void SetCursor(HCURSOR c)
+/* NULL_BRUSH means "outline only"; the icon code selects it before stroking. */
+HGDIOBJ GetStockObject(int obj) { return gdi_stock_object(obj); }
+
+static HCURSOR s_cursor;
+
+HCURSOR SetCursor(HCURSOR c)
+{
+    HCURSOR prev = s_cursor;
+    s_cursor = c;
 {
     /* The source asks for IDC_ARROW, IDC_IBEAM and the split cursors; the
      * Toolbox equivalents are the arrow and I-beam, and resize cursors come
@@ -230,7 +282,10 @@ void SetCursor(HCURSOR c)
      * so the vertical splitter keeps the arrow. */
     else if (which == 32645) SetThemeCursor(kThemeArrowCursor);
     else if (which == 32649) SetThemeCursor(kThemePointingHandCursor);    /* IDC_HAND */
+    else if (which == 32514) SetThemeCursor(kThemeWatchCursor);           /* IDC_WAIT */
     else SetThemeCursor(kThemeArrowCursor);
+}
+    return prev;
 }
 
 int GetSystemMetrics(int index)
@@ -244,20 +299,36 @@ int GetSystemMetrics(int index)
     }
 }
 
+/* main.c saves the window's size and position from this on exit. */
 BOOL GetWindowPlacement(HWND w, LPVOID pl)
 {
-    /* Only the maximised flag is read, to persist it; windows on OS 9 are
-     * zoomed rather than maximised, so report "normal". */
-    unsigned int *u = (unsigned int *)pl;
-    (void)w;
-    if (u) u[1] = 1;   /* showCmd = SW_SHOWNORMAL */
+    WINDOWPLACEMENT *p = (WINDOWPLACEMENT *)pl;
+    RECT r;
+    if (!p) return FALSE;
+    memset(p, 0, sizeof *p);
+    p->length = sizeof *p;
+    /* Classic windows zoom rather than maximise, so this is always "normal"
+     * and the zoomed size is simply what gets saved. */
+    p->showCmd = SW_SHOWNORMAL;
+    GetWindowRect(w, &r);
+    p->rcNormalPosition = r;
     return TRUE;
 }
 
 BOOL SetWindowPos(HWND w, HWND after, int x, int y, int cw, int ch, UINT flags)
 {
-    (void)after; (void)flags;
+    RECT cur;
+    (void)after;
+    if (!w) return FALSE;
+
+    shim_child_rect(w, &cur);
+    if (flags & SWP_NOMOVE) { x = cur.left; y = cur.top; }
+    if (flags & SWP_NOSIZE) { cw = cur.right - cur.left; ch = cur.bottom - cur.top; }
     MoveWindow(w, x, y, cw, ch, TRUE);
+
+    /* The command palette is created hidden and shown through this flag;
+     * ignoring it meant the palette was positioned but never made visible. */
+    if (flags & SWP_SHOWWINDOW) ShowWindow(w, SW_SHOW);
     return TRUE;
 }
 
@@ -268,19 +339,29 @@ BOOL ShellExecute(HWND w, LPCSTR verb, LPCSTR file, LPCSTR params, LPCSTR dir, i
 {
     (void)w; (void)verb; (void)params; (void)dir; (void)show;
     if (!file) return FALSE;
+    /* Internet Config opens a URL in the user's browser. LSOpenCFURLRef would
+     * be the modern call, but it is not exported by this CarbonLib. */
     if (strncmp(file, "http", 4) == 0) {
-        CFURLRef url = CFURLCreateWithBytes(NULL, (const UInt8 *)file,
-                                            (CFIndex)strlen(file), kCFStringEncodingASCII, NULL);
-        if (url) { LSOpenCFURLRef(url, NULL); CFRelease(url); return TRUE; }
-        return FALSE;
+        ICInstance inst;
+        long len = (long)strlen(file);
+        long selStart = 0, selEnd = len;
+        OSStatus err;
+        if (ICStart(&inst, 'XPCD') != noErr) return FALSE;
+        err = ICLaunchURL(inst, (ConstStr255Param)"\p", (Ptr)file, len, &selStart, &selEnd);
+        ICStop(inst);
+        return err == noErr ? TRUE : FALSE;
     }
     return FALSE;
 }
 
-/* UNIMPLEMENTED: SHFileOperation does the Explorer delete-to-recycle-bin. The
- * Mac equivalent is FSMoveObjectToTrashSync; left out until the explorer's
- * delete path is wired up and tested. */
-int SHFileOperation(LPVOID op) { (void)op; return -1; }
+/* The Explorer's delete command. pFrom is a double-NUL terminated list of
+ * paths; the editor only ever deletes one at a time. */
+int SHFileOperation(LPVOID p)
+{
+    SHFILEOPSTRUCT *op = (SHFILEOPSTRUCT *)p;
+    if (!op || op->wFunc != FO_DELETE || !op->pFrom) return -1;
+    return mac_delete_path(op->pFrom) ? 0 : -1;
+}
 
 DWORD SHGetFolderPath(HWND w, int folder, HANDLE tok, DWORD flags, LPSTR path)
 {
@@ -290,73 +371,58 @@ DWORD SHGetFolderPath(HWND w, int folder, HANDLE tok, DWORD flags, LPSTR path)
     return 0;
 }
 
-BOOL SHGetPathFromIDList(LPVOID idl, LPSTR path) { (void)idl; if (path) path[0] = 0; return FALSE; }
-LPVOID SHBrowseForFolder(LPVOID bi) { (void)bi; return NULL; }
 
-/* GetOpenFileName/GetSaveFileName are routed to Navigation Services. The
- * OPENFILENAME layout the source uses is lpstrFile/nMaxFile, so the shim reads
- * those two fields by offset-free struct access in xpcode's own declaration. */
-BOOL GetOpenFileName(LPVOID ofn)
+
+/* The About box goes through this; a stub meant the menu item did nothing. */
+int MessageBoxIndirect(LPVOID params)
 {
-    char **fileField = (char **)((char *)ofn + 0);
-    (void)fileField;
-    return FALSE;   /* replaced by MacChooseFile at the call site */
+    MSGBOXPARAMS *mb = (MSGBOXPARAMS *)params;
+    if (!mb) return IDCANCEL;
+    return MessageBox(mb->hwndOwner, mb->lpszText, mb->lpszCaption, mb->dwStyle);
 }
 
-BOOL GetSaveFileName(LPVOID ofn) { (void)ofn; return FALSE; }
-
-int MessageBoxIndirect(LPVOID params) { (void)params; return IDCANCEL; }
-
+/* An HDROP here is the path list mac-carbon/sys.c built from an 'odoc' Apple Event:
+ * count first, then that many NUL-terminated paths. */
 UINT DragQueryFile(HDROP d, UINT i, LPSTR buf, UINT n)
 {
-    (void)d; (void)i;
-    if (buf && n) buf[0] = 0;
-    return 0;
+    const char *p = (const char *)d;
+    UINT count, k;
+    if (!p) return 0;
+    count = (UINT)(unsigned char)p[0];
+    p++;
+    if (i == 0xFFFFFFFFUL) return count;      /* Win32 asks for the count this way */
+    if (i >= count) return 0;
+    for (k = 0; k < i; k++) p += strlen(p) + 1;
+    if (buf && n) {
+        strncpy(buf, p, n - 1);
+        buf[n - 1] = 0;
+    }
+    return (UINT)strlen(p);
 }
 
-void DragFinish(HDROP d) { (void)d; }
-
-/* ------------------------------------------------- minimap bitmap access */
-
-/* UNIMPLEMENTED: the minimap renders into a DIB and blits it with GetDIBits /
- * SetDIBitsToDevice. Doing this on QuickDraw means locking the GWorld's PixMap
- * and walking its rowBytes directly. Until that is written the Mac build runs
- * with the minimap off (g_minimap is forced to 0 in main.c). */
-int GetDIBits(HDC dc, HBITMAP b, UINT start, UINT lines, LPVOID bits, LPVOID info, UINT usage)
-{
-    (void)dc; (void)b; (void)start; (void)lines; (void)bits; (void)info; (void)usage;
-    return 0;
-}
-
-int SetDIBitsToDevice(HDC dc, int x, int y, DWORD w, DWORD h, int sx, int sy,
-                      UINT start, UINT lines, LPVOID bits, LPVOID info, UINT usage)
-{
-    (void)dc; (void)x; (void)y; (void)w; (void)h; (void)sx; (void)sy;
-    (void)start; (void)lines; (void)bits; (void)info; (void)usage;
-    return 0;
-}
-
-BOOL PatBlt(HDC dc, int x, int y, int w, int h, DWORD rop)
-{
-    RECT r;
-    (void)rop;
-    SetRect(&r, x, y, x + w, y + h);
-    return ExtTextOut(dc, 0, 0, ETO_OPAQUE, &r, NULL, 0, NULL);
-}
+void DragFinish(HDROP d) { mac_drop_release(d); }
 
 /* ------------------------------------------- directory change notification */
 
-/* UNIMPLEMENTED: Win32 signals a handle when a directory changes. Mac OS 9 has
- * no such notification, so the explorer's auto-refresh relies on its existing
- * one-second poll (sidebar_tick) instead and these report "no change". */
+/* Mac OS 9 has no change notification, so a watch records the folder's
+ * modification date and WaitForSingleObject reports whether it has moved.
+ * The File Manager touches a folder's date on any create, rename or delete
+ * inside it, which is what the explorer wants to know. */
 HANDLE FindFirstChangeNotification(LPCSTR path, BOOL subtree, DWORD filter)
 {
-    (void)path; (void)subtree; (void)filter;
-    return INVALID_HANDLE_VALUE;
+    void *w;
+    (void)subtree; (void)filter;
+    w = mac_watch_open(path);
+    return w ? (HANDLE)w : INVALID_HANDLE_VALUE;
 }
 
-BOOL FindNextChangeNotification(HANDLE h)  { (void)h; return FALSE; }
-BOOL FindCloseChangeNotification(HANDLE h) { (void)h; return TRUE; }
+BOOL FindNextChangeNotification(HANDLE h) { (void)h; return TRUE; }
+
+BOOL FindCloseChangeNotification(HANDLE h)
+{
+    if (h != INVALID_HANDLE_VALUE) mac_watch_close(h);
+    return TRUE;
+}
 
 /* --------------------------------------------- processes (terminal absent) */
 
@@ -385,6 +451,12 @@ HANDLE CreateThread(LPVOID sa, DWORD stack, LPVOID fn, LPVOID arg, DWORD flags, 
 }
 
 BOOL  TerminateProcess(HANDLE h, UINT code)       { (void)h; (void)code; return FALSE; }
-DWORD WaitForSingleObject(HANDLE h, DWORD ms)     { (void)h; (void)ms; return 0xFFFFFFFFUL; }
+/* The explorer polls its directory watch through this. */
+DWORD WaitForSingleObject(HANDLE h, DWORD ms)
+{
+    (void)ms;
+    if (h == INVALID_HANDLE_VALUE || !h) return 0xFFFFFFFFUL;
+    return mac_watch_changed(h) ? WAIT_OBJECT_0 : 0x00000102UL /* WAIT_TIMEOUT */;
+}
 BOOL  GetExitCodeProcess(HANDLE h, DWORD *code)   { (void)h; if (code) *code = 0; return FALSE; }
 BOOL  GenerateConsoleCtrlEvent(DWORD ev, DWORD g) { (void)ev; (void)g; return FALSE; }

@@ -4,7 +4,7 @@
  * sidebar, editor, panel, status bar, palette), each with its own WNDPROC. The
  * Mac has no child windows, so only the top-level HWND owns a real WindowRef;
  * children are lightweight views that live in the same GrafPort and are given
- * their own clipped, origin-shifted HDC at paint time (see mac/gdi.c).
+ * their own clipped, origin-shifted HDC at paint time (see mac-carbon/gdi.c).
  *
  * The event loop is the classic WaitNextEvent one rather than the Carbon Event
  * Manager: it is supported by every CarbonLib version on Mac OS 9 as well as by
@@ -13,6 +13,7 @@
 #include "win32.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #define MAX_CLASSES 16
 #define MAX_WINDOWS 32
@@ -43,17 +44,36 @@ static UINT   s_timerMS;
 static HWND   s_timerWnd;
 static DWORD  s_nextTimer;
 
+/* Called once per pass through the event loop; mac-carbon/panel_mac.c installs the
+ * terminal poll here so the socket is drained without blocking the editor. */
+static void (*s_idleProc)(void);
+void shim_set_idle(void (*fn)(void)) { s_idleProc = fn; }
+
 /* a small message queue, for PostMessage and the synthesised WM_MOUSELEAVE */
 static MSG    s_queue[QUEUE_SIZE];
 static int    s_qhead, s_qtail;
 
-/* mac/gdi.c */
+/* mac-carbon/gdi.c */
 void  gdi_init(WindowRef wr);
 HDC   gdi_begin_window_paint(HWND w, const RECT *screenRC);
 void  gdi_end_window_paint(HDC dc);
 void  gdi_caret_tick(void);
 void  gdi_caret_owner_gone(HWND w);
 void  gdi_set_paint_dc(HDC dc);
+void  gdi_paint_caret(HWND w, HDC dc);
+int   gdi_have_port(void);
+
+extern int paint_probe_count;
+
+/* mac-carbon/sys.c */
+void  menubar_install(HMENU m);
+int   menubar_command(long selection);
+
+/* mac-carbon/edit.c */
+void  edit_register(void);
+void  edit_set_text(HWND w, const char *s);
+int   edit_get_text(HWND w, char *buf, int n);
+int   edit_is_edit(HWND w);
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -153,8 +173,12 @@ HWND CreateWindowEx(DWORD exstyle, LPCSTR cls, LPCSTR name, DWORD style,
     HWND win;
     (void)inst;
 
-    /* The only system class used is EDIT, for three single-line fields. */
-    if (!c && strcmp(cls, "EDIT") == 0) c = find_class("XPEdit");
+    /* The only system class used is EDIT, for three single-line fields; the
+     * shim registers its own on first use. */
+    if (!c && strcmp(cls, "EDIT") == 0) {
+        c = find_class("XPEdit");
+        if (!c) { edit_register(); c = find_class("XPEdit"); }
+    }
     if (!c) return NULL;
 
     win = alloc_win();
@@ -168,18 +192,47 @@ HWND CreateWindowEx(DWORD exstyle, LPCSTR cls, LPCSTR name, DWORD style,
     SetRect(&win->rc, x, y, x + w, y + h);
 
     if (!parent) {
-        Rect b;
+        Rect b, avail;
         if (s_root) { win->used = 0; return NULL; }   /* one top-level only */
+
+        /* The saved size comes from a PC and is far bigger than these screens,
+         * so the Mac build starts at a modest size and lets the user resize. */
+        if (GetAvailableWindowPositioningBounds(GetMainDevice(), &avail) != noErr) {
+            BitMap screen;
+            GetQDGlobalsScreenBits(&screen);
+            avail = screen.bounds;
+            avail.top += 20;
+        }
+        w = 700; h = 600;
+        {
+            int maxw = avail.right - avail.left;
+            int maxh = avail.bottom - avail.top;
+            if (w > maxw) w = maxw;
+            if (h > maxh) h = maxh;
+        }
+        /* Leave room for the title bar: these are content-region coordinates,
+         * so starting at avail.top would put the drag bar under the menu bar
+         * and the window could not be moved. RepositionWindow fixes it up. */
+        x = avail.left + 8;
+        y = avail.top + 28;
+
         SetRect(&win->rc, 0, 0, w, h);
         b.left = (short)x; b.top = (short)y;
         b.right = (short)(x + w); b.bottom = (short)(y + h);
         if (CreateNewWindow(kDocumentWindowClass,
                             kWindowStandardDocumentAttributes | kWindowStandardHandlerAttribute,
                             &b, &win->wr) != noErr) { win->used = 0; return NULL; }
-        SetWindowTitleWithCFString(win->wr,
-            CFStringCreateWithCString(NULL, name ? name : "", kCFStringEncodingMacRoman));
+        {
+            CFStringRef cf = CFStringCreateWithCString(NULL, name ? name : "",
+                                                       kCFStringEncodingMacRoman);
+            if (cf) { SetWindowTitleWithCFString(win->wr, cf); CFRelease(cf); }
+        }
+        /* make sure the whole structure region, title bar included, is on screen */
+        RepositionWindow(win->wr, NULL, kWindowCascadeOnMainScreen);
         s_root = win;
         gdi_init(win->wr);
+        /* main.c passes its Win32 menu here; install it as the Mac menu bar. */
+        if (menu) menubar_install(menu);
     }
 
     SendMessage(win, WM_CREATE, 0, (LPARAM)param);
@@ -206,6 +259,20 @@ BOOL IsWindow(HWND w)        { return w && w->used; }
 BOOL IsWindowVisible(HWND w) { return w && w->used && win_visible_chain(w); }
 
 /* ---------------------------------------------------------------- geometry */
+
+/* The parent of a child window, and the control id it was created with. The
+ * EDIT control needs both to post its EN_CHANGE notification the way Win32
+ * does: to the parent, with the id in the low word of wParam. */
+HWND shim_parent(HWND w) { return w ? w->parent : NULL; }
+HWND shim_root_window(void) { return s_root; }
+int  shim_child_id(HWND w) { return w ? (int)(long)w->menu : 0; }
+
+/* a child's rect within its parent, which GetClientRect does not expose */
+void shim_child_rect(HWND w, LPRECT r)
+{
+    if (!w) { SetRectEmpty(r); return; }
+    *r = w->rc;
+}
 
 void GetClientRect(HWND w, LPRECT r)
 {
@@ -248,7 +315,57 @@ void ShowWindow(HWND w, int cmd)
     /* ShowHide, not Carbon's ShowWindow: that name is taken by the shim. */
     if (w->wr) {
         ShowHide(w->wr, w->visible ? true : false);
-        if (w->visible) SelectWindow(w->wr);
+        if (w->visible) {
+            Rect b;
+            SelectWindow(w->wr);
+#ifdef XPCODE_DIAG
+            /* Drawn by the Toolbox, so it shows even when none of the shim's
+             * own painting works. Build without XPCODE_DIAG to remove. */
+            {
+                char msg[512];
+                int nchild = 0, i;
+                Rect wb;
+                for (i = 0; i < MAX_WINDOWS; i++)
+                    if (s_wins[i].used && s_wins[i].parent == w) nchild++;
+                GetWindowBounds(w->wr, kWindowContentRgn, &wb);
+                snprintf(msg, sizeof msg,
+                         "port=%s  win=%dx%d  children=%d  rc=%dx%d",
+                         gdi_have_port() ? "ok" : "NULL",
+                         (int)(wb.right - wb.left), (int)(wb.bottom - wb.top),
+                         nchild,
+                         (int)(w->rc.right - w->rc.left),
+                         (int)(w->rc.bottom - w->rc.top));
+                MessageBox(NULL, msg, "XPico diag 1/2", MB_OK);
+            }
+#endif
+            /* The app lays its panels out from WM_SIZE. Nothing has sent one
+             * yet, so the first paint would use stale child rects and leave
+             * the window half-drawn until the user resized it. */
+            GetWindowBounds(w->wr, kWindowContentRgn, &b);
+            SetRect(&w->rc, 0, 0, b.right - b.left, b.bottom - b.top);
+            SendMessage(w, WM_SIZE, 0, MAKELONG(b.right - b.left, b.bottom - b.top));
+#ifdef XPCODE_DIAG
+            {
+                char msg[512];
+                int i, painted;
+                char kids[256];
+                kids[0] = 0;
+                for (i = 0; i < MAX_WINDOWS; i++)
+                    if (s_wins[i].used && s_wins[i].parent == w) {
+                        char one[64];
+                        snprintf(one, sizeof one, "%s %dx%d@%d,%d;",
+                                 s_wins[i].cls,
+                                 (int)(s_wins[i].rc.right - s_wins[i].rc.left),
+                                 (int)(s_wins[i].rc.bottom - s_wins[i].rc.top),
+                                 (int)s_wins[i].rc.left, (int)s_wins[i].rc.top);
+                        strncat(kids, one, sizeof kids - strlen(kids) - 1);
+                    }
+                painted = paint_probe_count;
+                snprintf(msg, sizeof msg, "after layout: paints=%d\n%s", painted, kids);
+                MessageBox(NULL, msg, "XPico diag 2/2", MB_OK);
+            }
+#endif
+        }
     }
     InvalidateRect(w->parent ? w->parent : w, NULL, TRUE);
 }
@@ -315,30 +432,50 @@ void InvalidateRect(HWND w, const RECT *r, BOOL erase)
 
 /* Paint every visible window that overlaps the window's update region, parents
  * before children, which is the order Win32's WS_CLIPCHILDREN painting gives. */
-static void paint_tree(HWND w)
+int paint_probe_count;
+
+/* Paint the tree, skipping anything the update region does not touch.
+ *
+ * Each panel renders its whole offscreen buffer inside its WM_PAINT and blits
+ * it, so painting one that is not invalid is pure waste -- and the editor's
+ * buffer is the size of the window. Without this test every caret blink and
+ * every step of a scrollbar drag re-rendered all five panels, which is what
+ * made dragging crawl. BeginUpdate clips what reaches the screen, but it
+ * cannot stop the work from happening. */
+static void paint_tree(HWND w, RgnHandle clip)
 {
     int i;
     RECT sr;
     if (!w->used || !w->visible) return;
     win_screen_rect(w, &sr);
+    if (clip) {
+        Rect r;
+        r.left = (short)sr.left; r.top = (short)sr.top;
+        r.right = (short)sr.right; r.bottom = (short)sr.bottom;
+        /* children live inside the parent, so skipping it skips the subtree */
+        if (!RectInRgn(&r, clip)) return;
+    }
     if (sr.right > sr.left && sr.bottom > sr.top) {
         HDC dc = gdi_begin_window_paint(w, &sr);
         if (dc) {
             /* BeginPaint inside the proc hands back this DC. */
             gdi_set_paint_dc(dc);
+            paint_probe_count++;
             w->proc(w, WM_PAINT, 0, 0);
+            /* the text cursor goes on top of whatever the panel just blitted */
+            gdi_paint_caret(w, dc);
             gdi_set_paint_dc(NULL);
             gdi_end_window_paint(dc);
         }
         w->dirty = 0;
     }
     for (i = 0; i < MAX_WINDOWS; i++)
-        if (s_wins[i].used && s_wins[i].parent == w) paint_tree(&s_wins[i]);
+        if (s_wins[i].used && s_wins[i].parent == w) paint_tree(&s_wins[i], clip);
 }
 
 void UpdateWindow(HWND w)
 {
-    if (w) paint_tree(w);
+    if (w) paint_tree(w, NULL);
 }
 
 /* ---------------------------------------------------------------- messages */
@@ -400,21 +537,40 @@ void SetWindowText(HWND w, LPCSTR s)
     if (!w) return;
     strncpy(w->text, s ? s : "", sizeof w->text - 1);
     w->text[sizeof w->text - 1] = 0;
-    if (w->wr)
-        SetWindowTitleWithCFString(w->wr,
-            CFStringCreateWithCString(NULL, w->text, kCFStringEncodingMacRoman));
-    else
-        InvalidateRect(w, NULL, TRUE);
+    if (w->wr) {
+        CFStringRef cf = CFStringCreateWithCString(NULL, w->text, kCFStringEncodingMacRoman);
+        if (cf) { SetWindowTitleWithCFString(w->wr, cf); CFRelease(cf); }
+        return;
+    }
+    /* an EDIT field keeps its own buffer, so keep that in step */
+    if (edit_is_edit(w)) edit_set_text(w, w->text);
+    InvalidateRect(w, NULL, TRUE);
 }
 
 int GetWindowText(HWND w, LPSTR buf, int n)
 {
-    int len;
     if (!w || n <= 0) return 0;
+    if (edit_is_edit(w)) return edit_get_text(w, buf, n);
     strncpy(buf, w->text, n - 1);
     buf[n - 1] = 0;
-    len = (int)strlen(buf);
-    return len;
+    return (int)strlen(buf);
+}
+
+/* The three EDIT fields are subclassed: the app swaps in its own proc and
+ * chains to the original through CallWindowProc. */
+LONG_PTR SetWindowLongPtr(HWND w, int index, LONG_PTR v)
+{
+    WNDPROC old;
+    if (!w || !w->used || index != GWLP_WNDPROC) return 0;
+    old = w->proc;
+    w->proc = (WNDPROC)v;
+    return (LONG_PTR)old;
+}
+
+LRESULT CallWindowProc(WNDPROC proc, HWND w, UINT m, WPARAM wp, LPARAM lp)
+{
+    if (!proc) return DefWindowProc(w, m, wp, lp);
+    return proc(w, m, wp, lp);
 }
 
 short GetKeyState(int vk)
@@ -495,6 +651,12 @@ static void dispatch_mouse(UINT msg, Point pt, WPARAM wp)
     SendMessage(target, msg, wp, MAKELONG(pt.h - ox, pt.v - oy));
 }
 
+/* Classic Mac OS has no mouse-moved event: you poll. Without this the app
+ * never saw WM_MOUSEMOVE at all, so nothing that tracks the pointer worked --
+ * dragging either scrollbar, dragging the splitters or the minimap, selecting
+ * text by dragging, and every hover highlight. */
+static Point s_lastMouse = { -32768, -32768 };
+
 static void track_mouse_leave(Point pt)
 {
     HWND over = hit_test(s_root, pt.h, pt.v);
@@ -502,6 +664,29 @@ static void track_mouse_leave(Point pt)
         if (s_mouseIn && s_mouseIn->used) SendMessage(s_mouseIn, WM_MOUSELEAVE, 0, 0);
         s_mouseIn = over;
     }
+}
+
+static void poll_mouse(void)
+{
+    Point pt;
+    HWND target;
+    int ox, oy;
+
+    if (!s_root || !s_root->wr) return;
+    GetGlobalMouse(&pt);
+    local_mouse(&pt);
+    if (pt.h == s_lastMouse.h && pt.v == s_lastMouse.v) return;
+    s_lastMouse = pt;
+
+    track_mouse_leave(pt);
+
+    /* While a window has capture the moves belong to it even once the pointer
+     * has left, which is what makes a drag keep working past the edge. */
+    target = s_capture ? s_capture : hit_test(s_root, pt.h, pt.v);
+    if (!target) return;
+    win_origin(target, &ox, &oy);
+    SendMessage(target, WM_MOUSEMOVE, Button() ? MK_LBUTTON : 0,
+                MAKELONG(pt.h - ox, pt.v - oy));
 }
 
 BOOL GetMessage(LPMSG m, HWND w, UINT lo, UINT hi)
@@ -515,19 +700,36 @@ BOOL GetMessage(LPMSG m, HWND w, UINT lo, UINT hi)
         /* posted messages first, as Win32's queue does */
         if (queue_pop(m)) return TRUE;
 
+        /* The Standard Window Handler resizes and zooms the window behind our
+         * back, so pick the new content size up and let the app re-lay out. */
+        if (s_root && s_root->wr) {
+            Rect b;
+            GetWindowBounds(s_root->wr, kWindowContentRgn, &b);
+            if (b.right - b.left != s_root->rc.right - s_root->rc.left ||
+                b.bottom - b.top != s_root->rc.bottom - s_root->rc.top) {
+                int cw = b.right - b.left, ch = b.bottom - b.top;
+                SetRect(&s_root->rc, 0, 0, cw, ch);
+                SendMessage(s_root, WM_SIZE, 0, MAKELONG(cw, ch));
+                InvalidateRect(s_root, NULL, TRUE);
+            }
+        }
+
         /* anything invalidated gets drawn before we block for input */
         if (s_root && s_root->wr) {
             RgnHandle rgn = NewRgn();
             GetWindowRegion(s_root->wr, kWindowUpdateRgn, rgn);
             if (!EmptyRgn(rgn)) {
                 BeginUpdate(s_root->wr);
-                paint_tree(s_root);
+                paint_tree(s_root, rgn);
                 EndUpdate(s_root->wr);
             }
             DisposeRgn(rgn);
         }
 
+        poll_mouse();
         gdi_caret_tick();
+        /* the terminal transport polls its socket from here */
+        if (s_idleProc) s_idleProc();
 
         if (s_timerWnd && TickCount() >= s_nextTimer) {
             s_nextTimer = TickCount() + (s_timerMS * 60) / 1000;
@@ -535,20 +737,23 @@ BOOL GetMessage(LPMSG m, HWND w, UINT lo, UINT hi)
             continue;
         }
 
-        if (!WaitNextEvent(everyEvent, &ev, 2, NULL)) {
-            Point pt;
-            GetGlobalMouse(&pt);
-            local_mouse(&pt);
-            track_mouse_leave(pt);
-            continue;
-        }
+        /* Sleeping 2 ticks a pass caps mouse polling at ~30 Hz, which a drag
+         * feels as lag. While a button is down, give up the processor without
+         * waiting so the pointer is sampled as fast as the repaint allows. */
+        if (!WaitNextEvent(everyEvent, &ev, Button() ? 0 : 2, NULL)) continue;
 
         switch (ev.what) {
         case mouseDown: {
             WindowRef hitw;
             short part = FindWindow(ev.where, &hitw);
             Point pt = ev.where;
-            if (part == inMenuBar) { MenuSelect(ev.where); continue; }
+            if (part == inMenuBar) {
+                long sel = MenuSelect(ev.where);
+                int cmd = menubar_command(sel);
+                HiliteMenu(0);
+                if (cmd) SendMessage(s_root, WM_COMMAND, (WPARAM)cmd, 0);
+                continue;
+            }
             if (hitw != (s_root ? s_root->wr : NULL)) continue;
             if (part == inDrag) { DragWindow(hitw, ev.where, NULL); continue; }
             if (part == inGoAway) {
@@ -558,6 +763,15 @@ BOOL GetMessage(LPMSG m, HWND w, UINT lo, UINT hi)
             /* Growing and zooming are left to the Standard Window Handler;
              * the resulting size change arrives as an update event. */
             if (part == inGrow || part == inZoomIn || part == inZoomOut) continue;
+
+            /* Clicking an inactive window brings it forward and is not passed
+             * on, which is what every other Mac application does. */
+            if (hitw != FrontWindow()) {
+                SelectWindow(hitw);
+                InvalidateRect(s_root, NULL, TRUE);
+                continue;
+            }
+
             local_mouse(&pt);
             {
                 UINT msg = (ev.modifiers & controlKey) ? WM_RBUTTONDOWN : WM_LBUTTONDOWN;
@@ -586,14 +800,35 @@ BOOL GetMessage(LPMSG m, HWND w, UINT lo, UINT hi)
         }
         case updateEvt:
             if ((WindowRef)ev.message == (s_root ? s_root->wr : NULL)) {
+                RgnHandle rgn = NewRgn();
+                GetWindowRegion(s_root->wr, kWindowUpdateRgn, rgn);
                 BeginUpdate(s_root->wr);
-                paint_tree(s_root);
+                paint_tree(s_root, rgn);
                 EndUpdate(s_root->wr);
+                DisposeRgn(rgn);
             }
             continue;
-        case activateEvt:
-            SendMessage(s_root, WM_ACTIVATEAPP, (ev.modifiers & activeFlag) ? 1 : 0, 0);
+        case activateEvt: {
+            int active = (ev.modifiers & activeFlag) ? 1 : 0;
+            SendMessage(s_root, WM_ACTIVATEAPP, (WPARAM)active, 0);
+            /* The selection and focus rings differ between the active and
+             * inactive states, so the whole window is redrawn either way. */
+            InvalidateRect(s_root, NULL, TRUE);
+            if (s_focus) SendMessage(s_focus, active ? WM_SETFOCUS : WM_KILLFOCUS, 0, 0);
             continue;
+        }
+
+        case osEvt:
+            /* Suspend and resume arrive here rather than as activate events
+             * when the app is switched away from and back to. */
+            if (((ev.message >> 24) & 0xFF) == suspendResumeMessage) {
+                int resumed = (ev.message & resumeFlag) ? 1 : 0;
+                SendMessage(s_root, WM_ACTIVATEAPP, (WPARAM)resumed, 0);
+                if (resumed) InvalidateRect(s_root, NULL, TRUE);
+                if (s_focus) SendMessage(s_focus, resumed ? WM_SETFOCUS : WM_KILLFOCUS, 0, 0);
+            }
+            continue;
+
         default:
             continue;
         }

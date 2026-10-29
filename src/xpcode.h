@@ -5,10 +5,32 @@
 
 #ifdef MAC_OS
 /* Mac OS 9 / Carbon build: the Win32 API the editor is written against is
- * provided by the shim in src/mac. Mac OS 9 has no shell, pipes or processes,
+ * provided by the shim in src/mac-carbon. Mac OS 9 has no shell, pipes or processes,
  * so the integrated terminal is left out of this build. */
-#include "mac/win32.h"
+#include "mac-carbon/win32.h"
 #define HAVE_TERMINAL 0
+/* Runtime, not compile time: the same Carbon binary runs on Mac OS 9, which has
+ * no shell at all, and on Mac OS X, where the xpcode-termd helper provides one.
+ * Everything that depends on running a command is hidden when there is none. */
+#define TERMINAL_AVAILABLE() mac_is_osx()
+#define FILE_MANAGER_NAME "Finder"
+/* How the editor describes itself in the welcome screen and the About box.
+ * The Windows build is the plain-Win32 one; this build reaches the same Win32
+ * surface through the shim in src/mac, so saying "Win32" to the user would be
+ * true of the source and meaningless on the machine. */
+#define PLATFORM_BLURB "for legacy MacOS"
+#define TEXT_ENCODING_NAME "Mac OS Roman"
+/* Classic Mac OS terminates lines with a bare CR. Files are written that way
+ * so other Mac applications can read them; read_file normalises all three
+ * conventions to LF on the way in. */
+#define LINE_ENDING      "\r"
+#define LINE_ENDING_LEN  1
+#define LINE_ENDING_NAME "CR"
+#define BUILD_SCRIPT  "build.sh"
+#define BUILD_COMMAND "cd '%s' && sh build.sh"
+#define TERMINAL_BLURB "A real Unix shell, right inside the editor."
+#define RUN_BLURB "F5 compiles C with cc and runs Python."
+#define RUN_RECIPES mac_run_recipes
 #define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
 #define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
 #else
@@ -22,6 +44,18 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #define HAVE_TERMINAL 1
+#define TERMINAL_AVAILABLE() 1
+#define FILE_MANAGER_NAME "Windows Explorer"
+#define PLATFORM_BLURB "in plain Win32"
+#define TEXT_ENCODING_NAME "Windows 1252"
+#define LINE_ENDING      "\r\n"
+#define LINE_ENDING_LEN  2
+#define LINE_ENDING_NAME "CRLF"
+#define BUILD_SCRIPT  "build.bat"
+#define BUILD_COMMAND "cd /d \"%s\" && call build.bat"
+#define TERMINAL_BLURB "A real cmd.exe, right inside the editor."
+#define RUN_BLURB "F5 compiles C with TCC, runs Python and batch."
+#define RUN_RECIPES win_run_recipes
 #endif
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,8 +63,21 @@
 #include <stdarg.h>
 #include <ctype.h>
 
+/* Path separator. Classic Mac OS uses ':' and has no drive letters, so the
+ * editor's own path building and splitting has to follow the host convention
+ * or file names come out as whole paths in the tabs and explorer. */
+#ifdef MAC_OS
+#define PATH_SEP   ':'
+#define PATH_SEPS  ":"
+#define IS_PATH_SEP(c) ((c) == ':')
+#else
+#define PATH_SEP   '\\'
+#define PATH_SEPS  "\\"
+#define IS_PATH_SEP(c) ((c) == '\\' || (c) == '/')
+#endif
+
 #define APP_NAME "XPico Code"
-#define APP_VERSION "1.1.0"
+#define APP_VERSION "1.1.1"
 #define IDI_APP 1        /* icon resource embedded by tools/embed_resources.py */
 #define HEX(c) RGB(((c) >> 16) & 255, ((c) >> 8) & 255, (c) & 255)
 
@@ -130,6 +177,12 @@ void app_open_folder(const char *path);
 int  app_hotkey(MSG *m);
 char *read_file(const char *path, int *len);
 int  fuzzy_score(const char *pattern, const char *s);
+/* 1 for commands that need a shell behind them, so the menus, the command
+ * palette and the welcome screen can all hide the same set on a system that
+ * has none. */
+int  cmd_needs_terminal(int cmd);
+/* What F5 does per file type, listed in the Run side bar. NULL-terminated. */
+extern const char *const RUN_RECIPES[];
 
 /* ---- editor.c ---- */
 typedef struct Doc Doc;
