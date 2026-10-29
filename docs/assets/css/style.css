@@ -73,9 +73,7 @@ body {
 }
 /* The buttons are 220px wide on their own; in a column they take the cell. */
 .window-body table.downloads a.button {
-  display: block;
-  width: 100%;
-  min-width: 0;
+  min-width: 150px;
   margin: 4px 0;
 }
 .window-body table.downloads .note {
