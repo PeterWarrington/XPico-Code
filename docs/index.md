@@ -77,3 +77,5 @@ description: A VS Code-style editor in under 200kb. Compatible with Windows 95 a
 - Remembers the open folder, open files, window layout and zoom level between sessions.
 
 
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4156742391117884"
+     crossorigin="anonymous"></script>
